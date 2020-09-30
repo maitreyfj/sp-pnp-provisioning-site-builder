@@ -32,6 +32,9 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationIcon>settings_options_preferences_gears_icon_124617.ico</ApplicationIcon>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="AngleSharp, Version=0.9.9.0, Culture=neutral, PublicKeyToken=e83494dcdc6d31ea, processorArchitecture=MSIL">
       <HintPath>..\packages\AngleSharp.0.9.9\lib\net45\AngleSharp.dll</HintPath>
@@ -211,12 +214,15 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="FieldValueProvider.cs" />
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Form1.Designer.cs">
       <DependentUpon>Form1.cs</DependentUpon>
     </Compile>
+    <Compile Include="ItemPathProvider.cs" />
+    <Compile Include="ListItemsProvider.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <EmbeddedResource Include="Form1.resx">
@@ -231,6 +237,18 @@
       <AutoGen>True</AutoGen>
       <DependentUpon>Resources.resx</DependentUpon>
     </Compile>
+    <None Include="assets\Documents\Contoso Annual Report [Draft].docx" />
+    <None Include="assets\Documents\Contoso Annual Report.docx" />
+    <None Include="assets\Documents\Contoso Company Goals Q1 - Q4.docx" />
+    <None Include="assets\Documents\Contoso Five Year Vision.docx" />
+    <None Include="assets\Documents\Contoso NextGen Camera Product Planning.docx" />
+    <None Include="assets\Documents\contoso-timeline.pptx" />
+    <None Include="assets\Documents\contoso_marketing_facts.pptx" />
+    <None Include="assets\Documents\Corporate Giving Press Release.docx" />
+    <None Include="assets\Documents\European Backpacking Trip.xlsx" />
+    <None Include="assets\Documents\Financial Reporting.xlsx" />
+    <None Include="assets\Documents\Potential Australia Exp..pptx" />
+    <None Include="assets\Documents\QT300 Accessories Specs.xlsx" />
     <None Include="packages.config" />
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
@@ -245,5 +263,35 @@
   <ItemGroup>
     <None Include="App.config" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="assets\contosoteam.jpg" />
+    <Content Include="assets\SitePages\Contoso-Eagle-press-release-and-product-specs\88784-asoggetti-418839-unsplash.jpg" />
+    <Content Include="assets\SitePages\givingcampaignmarketing\1552609190luca-micheli-422053-unsplash.jpg" />
+    <Content Include="assets\SitePages\givingcampaignmarketing\3875434235Workshop2.jpg" />
+    <Content Include="assets\SitePages\How-to-foster-inclusivity\2057-test.gif" />
+    <Content Include="assets\SitePages\How-to-foster-inclusivity\42662-omer-rana-503225-unsplash.jpg" />
+    <Content Include="assets\SitePages\Meet-our-newest-team-member\84468-Workshop2.jpg" />
+    <Content Include="assets\SitePages\Meet-the-team\17313-meet-the-team-contosoblue.jpg" />
+    <Content Include="assets\SitePages\Meet-the-team\1790-2col-team-01.png" />
+    <Content Include="assets\SitePages\Meet-the-team\22546-2col-team-02.png" />
+    <Content Include="assets\SitePages\Meet-the-team\3387-3col-team-2.png" />
+    <Content Include="assets\SitePages\Meet-the-team\37752-3col-team-7.png" />
+    <Content Include="assets\SitePages\Meet-the-team\50143-3col-team-1.png" />
+    <Content Include="assets\SitePages\Meet-the-team\50175-3col-team-5.png" />
+    <Content Include="assets\SitePages\Meet-the-team\75219-3col-team-4.png" />
+    <Content Include="assets\SitePages\Meet-the-team\95818-3col-team-6.png" />
+    <Content Include="assets\SitePages\Meet-the-team\ic-insta-white%402x.png" />
+    <Content Include="assets\SitePages\Meet-the-team\ic-linkendin-white%402x.png" />
+    <Content Include="assets\SitePages\Meet-the-team\ic-skype-white%402x.png" />
+    <Content Include="assets\SitePages\Meet-the-team\ic-twitter-white%402x.png" />
+    <Content Include="assets\SitePages\What-s-the-difference-between-customer-support-and-customer-engagement\10752-austin-distel-675050-unsplash.jpg" />
+    <Content Include="assets\test.txt" />
+    <Content Include="settings_options_preferences_gears_icon_124617.ico" />
+    <Content Include="Templates\ContosoTeamSite.xml" />
+    <Content Include="Templates\Landing.xml" />
+    <Content Include="Templates\LeadershipSite.xml" />
+    <Content Include="Templates\MarketingLanding.xml" />
+  </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

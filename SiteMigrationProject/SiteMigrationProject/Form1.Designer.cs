@@ -56,6 +56,7 @@
             this.rbSiteReplica = new System.Windows.Forms.RadioButton();
             this.rbNewSite = new System.Windows.Forms.RadioButton();
             this.tabSourceSite = new System.Windows.Forms.TabPage();
+            this.btnXMlFileWithListData = new System.Windows.Forms.Button();
             this.lblSourceSiteErrorLog = new System.Windows.Forms.Label();
             this.SourceSiteProgressBar = new System.Windows.Forms.ProgressBar();
             this.btnLoadList = new System.Windows.Forms.Button();
@@ -80,9 +81,6 @@
             this.btnAddGroups = new System.Windows.Forms.Button();
             this.lblTargetSiteErrorLog = new System.Windows.Forms.Label();
             this.TargetSiteProgressBar = new System.Windows.Forms.ProgressBar();
-            this.btnTargetFileLocation = new System.Windows.Forms.Button();
-            this.txtTargetFileLocation = new System.Windows.Forms.TextBox();
-            this.lblTargetFileLocation = new System.Windows.Forms.Label();
             this.txtDesXMLFileName = new System.Windows.Forms.TextBox();
             this.btnBrowse = new System.Windows.Forms.Button();
             this.btnSiteMigrate = new System.Windows.Forms.Button();
@@ -98,6 +96,7 @@
             this.openFileDialog2 = new System.Windows.Forms.OpenFileDialog();
             this.backgroundWorker1 = new System.ComponentModel.BackgroundWorker();
             this.errorProvider1 = new System.Windows.Forms.ErrorProvider(this.components);
+            this.btnDataMigration = new System.Windows.Forms.Button();
             this.tabSiteMigration.SuspendLayout();
             this.tabSiteBuilder.SuspendLayout();
             this.pnlProvision.SuspendLayout();
@@ -134,11 +133,11 @@
             // rbExistingSite
             // 
             this.rbExistingSite.AutoSize = true;
-            this.rbExistingSite.Location = new System.Drawing.Point(347, 39);
+            this.rbExistingSite.Location = new System.Drawing.Point(372, 42);
             this.rbExistingSite.Name = "rbExistingSite";
-            this.rbExistingSite.Size = new System.Drawing.Size(82, 17);
+            this.rbExistingSite.Size = new System.Drawing.Size(158, 17);
             this.rbExistingSite.TabIndex = 14;
-            this.rbExistingSite.Text = "Existing Site";
+            this.rbExistingSite.Text = "Add template to existing Site";
             this.rbExistingSite.UseVisualStyleBackColor = true;
             this.rbExistingSite.CheckedChanged += new System.EventHandler(this.rbExistingSite_CheckedChanged);
             // 
@@ -321,7 +320,7 @@
             // lblSiteCreation
             // 
             this.lblSiteCreation.AutoSize = true;
-            this.lblSiteCreation.Location = new System.Drawing.Point(150, 41);
+            this.lblSiteCreation.Location = new System.Drawing.Point(114, 42);
             this.lblSiteCreation.Name = "lblSiteCreation";
             this.lblSiteCreation.Size = new System.Drawing.Size(71, 13);
             this.lblSiteCreation.TabIndex = 12;
@@ -330,7 +329,7 @@
             // rbSiteReplica
             // 
             this.rbSiteReplica.AutoSize = true;
-            this.rbSiteReplica.Location = new System.Drawing.Point(451, 39);
+            this.rbSiteReplica.Location = new System.Drawing.Point(550, 42);
             this.rbSiteReplica.Name = "rbSiteReplica";
             this.rbSiteReplica.Size = new System.Drawing.Size(82, 17);
             this.rbSiteReplica.TabIndex = 11;
@@ -342,17 +341,18 @@
             // 
             this.rbNewSite.AutoSize = true;
             this.rbNewSite.Checked = true;
-            this.rbNewSite.Location = new System.Drawing.Point(249, 39);
+            this.rbNewSite.Location = new System.Drawing.Point(213, 40);
             this.rbNewSite.Name = "rbNewSite";
-            this.rbNewSite.Size = new System.Drawing.Size(68, 17);
+            this.rbNewSite.Size = new System.Drawing.Size(141, 17);
             this.rbNewSite.TabIndex = 10;
             this.rbNewSite.TabStop = true;
-            this.rbNewSite.Text = "New Site";
+            this.rbNewSite.Text = "Add template to new site";
             this.rbNewSite.UseVisualStyleBackColor = true;
             this.rbNewSite.CheckedChanged += new System.EventHandler(this.rbNewSite_CheckedChanged);
             // 
             // tabSourceSite
             // 
+            this.tabSourceSite.Controls.Add(this.btnXMlFileWithListData);
             this.tabSourceSite.Controls.Add(this.lblSourceSiteErrorLog);
             this.tabSourceSite.Controls.Add(this.SourceSiteProgressBar);
             this.tabSourceSite.Controls.Add(this.btnLoadList);
@@ -378,8 +378,18 @@
             this.tabSourceSite.Padding = new System.Windows.Forms.Padding(3);
             this.tabSourceSite.Size = new System.Drawing.Size(792, 674);
             this.tabSourceSite.TabIndex = 0;
-            this.tabSourceSite.Text = "Source Site Details";
+            this.tabSourceSite.Text = "Generate Site Template";
             this.tabSourceSite.UseVisualStyleBackColor = true;
+            // 
+            // btnXMlFileWithListData
+            // 
+            this.btnXMlFileWithListData.Location = new System.Drawing.Point(573, 436);
+            this.btnXMlFileWithListData.Name = "btnXMlFileWithListData";
+            this.btnXMlFileWithListData.Size = new System.Drawing.Size(128, 29);
+            this.btnXMlFileWithListData.TabIndex = 21;
+            this.btnXMlFileWithListData.Text = "XML File With Data";
+            this.btnXMlFileWithListData.UseVisualStyleBackColor = true;
+            this.btnXMlFileWithListData.Click += new System.EventHandler(this.btnXMlFileWithListData_Click);
             // 
             // lblSourceSiteErrorLog
             // 
@@ -551,7 +561,7 @@
             this.txtPassword.Name = "txtPassword";
             this.txtPassword.Size = new System.Drawing.Size(512, 20);
             this.txtPassword.TabIndex = 4;
-            this.txtPassword.Text = "Lion#tech111";
+            this.txtPassword.Text = "Tiger#digital87";
             this.txtPassword.UseSystemPasswordChar = true;
             // 
             // lblUsername
@@ -569,7 +579,7 @@
             this.txtUsername.Name = "txtUsername";
             this.txtUsername.Size = new System.Drawing.Size(512, 20);
             this.txtUsername.TabIndex = 2;
-            this.txtUsername.Text = "admin@techworkhive.onmicrosoft.com";
+            this.txtUsername.Text = "admin@digitalworkhive.onmicrosoft.com";
             // 
             // lblSourceSiteName
             // 
@@ -586,16 +596,14 @@
             this.txtSourceSiteName.Name = "txtSourceSiteName";
             this.txtSourceSiteName.Size = new System.Drawing.Size(512, 20);
             this.txtSourceSiteName.TabIndex = 0;
-            this.txtSourceSiteName.Text = "https://techworkhive.sharepoint.com/sites/DemoMigration";
+            this.txtSourceSiteName.Text = "https://digitalworkhive.sharepoint.com//sites/iacgroup";
             // 
             // tabTargetSite
             // 
+            this.tabTargetSite.Controls.Add(this.btnDataMigration);
             this.tabTargetSite.Controls.Add(this.btnAddGroups);
             this.tabTargetSite.Controls.Add(this.lblTargetSiteErrorLog);
             this.tabTargetSite.Controls.Add(this.TargetSiteProgressBar);
-            this.tabTargetSite.Controls.Add(this.btnTargetFileLocation);
-            this.tabTargetSite.Controls.Add(this.txtTargetFileLocation);
-            this.tabTargetSite.Controls.Add(this.lblTargetFileLocation);
             this.tabTargetSite.Controls.Add(this.txtDesXMLFileName);
             this.tabTargetSite.Controls.Add(this.btnBrowse);
             this.tabTargetSite.Controls.Add(this.btnSiteMigrate);
@@ -611,12 +619,12 @@
             this.tabTargetSite.Padding = new System.Windows.Forms.Padding(3);
             this.tabTargetSite.Size = new System.Drawing.Size(792, 674);
             this.tabTargetSite.TabIndex = 1;
-            this.tabTargetSite.Text = "Target Site Details";
+            this.tabTargetSite.Text = "Apply Site Template";
             this.tabTargetSite.UseVisualStyleBackColor = true;
             // 
             // btnAddGroups
             // 
-            this.btnAddGroups.Location = new System.Drawing.Point(195, 266);
+            this.btnAddGroups.Location = new System.Drawing.Point(191, 233);
             this.btnAddGroups.Name = "btnAddGroups";
             this.btnAddGroups.Size = new System.Drawing.Size(91, 35);
             this.btnAddGroups.TabIndex = 16;
@@ -634,48 +642,22 @@
             // 
             // TargetSiteProgressBar
             // 
-            this.TargetSiteProgressBar.Location = new System.Drawing.Point(195, 342);
+            this.TargetSiteProgressBar.Location = new System.Drawing.Point(195, 317);
             this.TargetSiteProgressBar.Name = "TargetSiteProgressBar";
             this.TargetSiteProgressBar.Size = new System.Drawing.Size(369, 23);
             this.TargetSiteProgressBar.TabIndex = 14;
             this.TargetSiteProgressBar.Value = 100;
             // 
-            // btnTargetFileLocation
-            // 
-            this.btnTargetFileLocation.Location = new System.Drawing.Point(494, 161);
-            this.btnTargetFileLocation.Name = "btnTargetFileLocation";
-            this.btnTargetFileLocation.Size = new System.Drawing.Size(84, 23);
-            this.btnTargetFileLocation.TabIndex = 13;
-            this.btnTargetFileLocation.Text = "Browse";
-            this.btnTargetFileLocation.UseVisualStyleBackColor = true;
-            this.btnTargetFileLocation.Click += new System.EventHandler(this.btnTargetFileLocation_Click);
-            // 
-            // txtTargetFileLocation
-            // 
-            this.txtTargetFileLocation.Location = new System.Drawing.Point(195, 164);
-            this.txtTargetFileLocation.Name = "txtTargetFileLocation";
-            this.txtTargetFileLocation.Size = new System.Drawing.Size(293, 20);
-            this.txtTargetFileLocation.TabIndex = 12;
-            // 
-            // lblTargetFileLocation
-            // 
-            this.lblTargetFileLocation.AutoSize = true;
-            this.lblTargetFileLocation.Location = new System.Drawing.Point(69, 171);
-            this.lblTargetFileLocation.Name = "lblTargetFileLocation";
-            this.lblTargetFileLocation.Size = new System.Drawing.Size(95, 13);
-            this.lblTargetFileLocation.TabIndex = 11;
-            this.lblTargetFileLocation.Text = "Template Location";
-            // 
             // txtDesXMLFileName
             // 
-            this.txtDesXMLFileName.Location = new System.Drawing.Point(195, 202);
+            this.txtDesXMLFileName.Location = new System.Drawing.Point(195, 160);
             this.txtDesXMLFileName.Name = "txtDesXMLFileName";
             this.txtDesXMLFileName.Size = new System.Drawing.Size(293, 20);
             this.txtDesXMLFileName.TabIndex = 10;
             // 
             // btnBrowse
             // 
-            this.btnBrowse.Location = new System.Drawing.Point(494, 202);
+            this.btnBrowse.Location = new System.Drawing.Point(494, 160);
             this.btnBrowse.Name = "btnBrowse";
             this.btnBrowse.Size = new System.Drawing.Size(84, 23);
             this.btnBrowse.TabIndex = 9;
@@ -685,7 +667,7 @@
             // 
             // btnSiteMigrate
             // 
-            this.btnSiteMigrate.Location = new System.Drawing.Point(348, 266);
+            this.btnSiteMigrate.Location = new System.Drawing.Point(344, 233);
             this.btnSiteMigrate.Name = "btnSiteMigrate";
             this.btnSiteMigrate.Size = new System.Drawing.Size(199, 35);
             this.btnSiteMigrate.TabIndex = 8;
@@ -696,7 +678,7 @@
             // lblDesFileName
             // 
             this.lblDesFileName.AutoSize = true;
-            this.lblDesFileName.Location = new System.Drawing.Point(69, 205);
+            this.lblDesFileName.Location = new System.Drawing.Point(69, 163);
             this.lblDesFileName.Name = "lblDesFileName";
             this.lblDesFileName.Size = new System.Drawing.Size(82, 13);
             this.lblDesFileName.TabIndex = 6;
@@ -743,7 +725,7 @@
             this.txtDestinationSiteName.Name = "txtDestinationSiteName";
             this.txtDestinationSiteName.Size = new System.Drawing.Size(383, 20);
             this.txtDestinationSiteName.TabIndex = 1;
-            this.txtDestinationSiteName.Text = "https://techworkhive.sharepoint.com/sites/DemoMS";
+            this.txtDestinationSiteName.Text = "https://techworkhive.sharepoint.com/sites/iacgrouptestv1";
             // 
             // lblDestinationSiteName
             // 
@@ -769,6 +751,16 @@
             // errorProvider1
             // 
             this.errorProvider1.ContainerControl = this;
+            // 
+            // btnDataMigration
+            // 
+            this.btnDataMigration.Location = new System.Drawing.Point(591, 233);
+            this.btnDataMigration.Name = "btnDataMigration";
+            this.btnDataMigration.Size = new System.Drawing.Size(129, 35);
+            this.btnDataMigration.TabIndex = 17;
+            this.btnDataMigration.Text = "Data Migrate";
+            this.btnDataMigration.UseVisualStyleBackColor = true;
+            this.btnDataMigration.Click += new System.EventHandler(this.btnDataMigration_Click);
             // 
             // Form1
             // 
@@ -851,9 +843,6 @@
         private System.Windows.Forms.Button btnAssetPath;
         private System.Windows.Forms.TextBox txtAssetsPath;
         private System.Windows.Forms.Label label2;
-        private System.Windows.Forms.Button btnTargetFileLocation;
-        private System.Windows.Forms.TextBox txtTargetFileLocation;
-        private System.Windows.Forms.Label lblTargetFileLocation;
         private System.Windows.Forms.RadioButton rbExistingSite;
         private System.Windows.Forms.Button btnLoadList;
         private System.Windows.Forms.ProgressBar SourceSiteProgressBar;
@@ -865,6 +854,8 @@
         private System.Windows.Forms.Label lblSourceSiteErrorLog;
         private System.Windows.Forms.Label lblSiteBuilderErrorLog;
         private System.Windows.Forms.Button btnAddGroups;
+        private System.Windows.Forms.Button btnXMlFileWithListData;
+        private System.Windows.Forms.Button btnDataMigration;
     }
 }
 

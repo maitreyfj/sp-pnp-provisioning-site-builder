@@ -18,24 +18,21 @@ using System.Collections;
 using System.Xml;
 using SP = Microsoft.SharePoint.Client;
 using System.Xml.Linq;
-using Microsoft.SharePoint.Client.WorkflowServices;
-using OfficeDevPnP.Core.Utilities;
-using Newtonsoft.Json.Linq;
-using OfficeDevPnP.Core.Framework.Provisioning.Model.Configuration;
-using AppCatalog = Microsoft.SharePoint.Client.AppCatalog;
-using OfficeDevPnP.Core.UPAWebService;
-
+using System.Text;
 
 namespace SiteMigrationProject
 {
 
     public partial class Form1 : System.Windows.Forms.Form
     {
+        #region Fields
         //Initialize Variable
-        //string path = "D:/Antima/SiteMigrationProject/SiteMigrationProject/Templates/";
         private Dictionary<string, FieldValueProvider> m_dictFieldValueProviders = null;
-        private Dictionary<string, LookupDataRef> m_lookups = null;
-        private Dictionary<int, int> m_mappingIDs = null;
+        private Dictionary<Guid, ListItemsProvider> m_listContentProviders = null;
+        bool XMLWithData = false;
+        #endregion //Fields
+
+        #region Constructors
         public Form1()
         {
             InitializeComponent();
@@ -45,6 +42,9 @@ namespace SiteMigrationProject
             this.List = list;
             this.Web = web;
         }
+        #endregion //Constructors
+
+        #region Properties
         public List List
         {
             get; private set;
@@ -53,24 +53,10 @@ namespace SiteMigrationProject
         {
             get; private set;
         }
-        public ClientRuntimeContext Context
-        {
-            get
-            {
-                return this.Web.Context;
-            }
-        }
 
-        public class ListItems
-        {
-            public string Text { get; set; }
-            public string Value { get; set; }
-        }
-        public int CompatibilityLevel { get; }
-        public uint Lcid { get; }
-        // public string Name { get; set; }
-        public Guid ProductId { get; set; }
-        public AppSource Source { get; set; }
+        #endregion //Properties
+
+        #region Methods
         //Function use for Add listname on checked listbox.
         private void BindListName(string SourceWebUrl, string SourceUserName, SecureString SourcePassword)
         {
@@ -99,7 +85,7 @@ namespace SiteMigrationProject
                         ctx.Load(list.RootFolder);
                         // Execute the query to the server.    
                         ctx.ExecuteQueryRetry();
-                        if (list.BaseType == BaseType.GenericList)
+                        if (list.BaseType == BaseType.GenericList || list.BaseType == BaseType.DocumentLibrary)
                         {
                             ChkListName.Items.Add(new System.Web.UI.WebControls.ListItem(list.Title, list.RootFolder.Name));
                         }
@@ -111,7 +97,6 @@ namespace SiteMigrationProject
                         }
                         if (ListCount == 0)
                             SourceSiteProgressBar.Value = 100;
-
                     }
 
                 }
@@ -119,40 +104,43 @@ namespace SiteMigrationProject
                 {
                     lblSourceSiteErrorLog.Text = ex.ToString();
                 }
-
             }
-
         }
-        private void btnSiteMigrate_Click(object sender, EventArgs e)
+
+        //This function is use for call the function MigrateListItems for Data migration.
+        private void DataMigrate()
         {
             try
             {
+                string StrSourceWebUrl = txtSourceSiteName.Text;
+                string StrSourceUserName = txtUsername.Text;
+                string StrSourcePassword = txtPassword.Text;
+                SecureString SecureSourcePassword = new SecureString();
+                foreach (char c in StrSourcePassword.ToCharArray()) SecureSourcePassword.AppendChar(c);
                 string StrTargetWebUrl = txtDestinationSiteName.Text;
-                string StrUserName = txtDesUsername.Text;
-                string StrPassword = txtDesPassword.Text;
-                string StrFileName = txtDesXMLFileName.Text;
-                var pathArray = StrFileName.Split('\\');
-                var newPathname = "";
-                for (int j = 0; j < pathArray.Length - 1; j++)
-                {
-                    newPathname += pathArray[j];
-                    newPathname += "\\";
-                }
-                string StrFileLocation = newPathname;
-                SecureString SecurePassword = new SecureString();
-                foreach (char c in StrPassword.ToCharArray()) SecurePassword.AppendChar(c);
-                TargetSiteProgressBar.Visible = true;
-                backgroundWorker1.WorkerReportsProgress = true;
-                int i = 10;
-                Thread.Sleep(100);
-                backgroundWorker1.ReportProgress(i);
-                i++;
-
-
-                // APPLY the template to new site from
-                ApplyProvisioningTemplate(StrTargetWebUrl, StrUserName, SecurePassword, StrFileLocation, StrFileName);
-                i = 0;
-                TargetSiteProgressBar.Value = 100;
+                string StrTargetUserName = txtDesUsername.Text;
+                string StrTargetPassword = txtDesPassword.Text;
+                SecureString SecureTargetPassword = new SecureString();
+                foreach (char c in StrTargetPassword.ToCharArray()) SecureTargetPassword.AppendChar(c);
+                var ctxSource = new ClientContext(StrSourceWebUrl);
+                ctxSource.Credentials = new SharePointOnlineCredentials(StrSourceUserName, SecureSourcePassword);
+                ctxSource.RequestTimeout = Timeout.Infinite;
+                // Just to output the site details
+                Web web = ctxSource.Web;
+                ctxSource.Load(web, w => w.Title);
+                ctxSource.ExecuteQuery();
+                var ctxDest = new ClientContext(StrTargetWebUrl);
+                ctxDest.Credentials = new SharePointOnlineCredentials(StrTargetUserName, SecureTargetPassword);
+                ctxDest.RequestTimeout = Timeout.Infinite;
+                // Just to output the site details
+                Web Desweb = ctxDest.Web;
+                ctxDest.Load(Desweb, w => w.Title);
+                ctxDest.ExecuteQuery();
+                List<string> lstGetSelectedLists = new List<string>();
+                //Calling function.
+                lstGetSelectedLists = GetSelectedValuesFromCheckBoxList(ChkListName);
+                //Calling function.
+                MigrateListItems(ctxSource, ctxDest, lstGetSelectedLists);
             }
             catch (Exception ex)
             {
@@ -161,42 +149,38 @@ namespace SiteMigrationProject
 
 
         }
-        //public static ProvisioningHierarchy GetTenantTemplate(this Tenant tenant, ExtractConfiguration configuration)
-        //{
-        //    return new SiteToTemplateConversion().GetTenantTemplate(tenant, configuration);
-        //}
 
-        private void btnXMLFile_Click(object sender, EventArgs e)
+        // This function is use for get the name of all selected list from checkbox.
+        private List<string> GetSelectedValuesFromCheckBoxList(CheckedListBox chkBox)
         {
+            List<string> lstResult = new List<string>();
             try
             {
-                // Collect information
-                string StrSourceWebUrl = txtSourceSiteName.Text;
-                string StrUserName = txtUsername.Text;
-                string StrPassword = txtPassword.Text;
-                string StrLocation = txtFileLocation.Text;
-                SecureString SecurePassword = new SecureString();
-                foreach (char c in StrPassword.ToCharArray()) SecurePassword.AppendChar(c);
-                int i = 10;
-                Thread.Sleep(100);
-                backgroundWorker1.ReportProgress(i);
-                i++;
-                // GET the template from existing site and serialize
-                // Serializing the template for later reuse is optional
-                // GetTenantNameFromUrl(StrSourceWebUrl);
-                //  GetTenantProvisioningTemplate(StrSourceWebUrl, StrUserName, SecurePassword, StrLocation);
-                GetProvisioningTemplate(StrSourceWebUrl, StrUserName, SecurePassword, StrLocation);
-                i = 0;
-                SourceSiteProgressBar.Value = 100;
+                string strValues = string.Empty;
+                for (int i = 0; i < chkBox.Items.Count; i++)
+                {
+                    if (chkBox.GetItemChecked(i)
+                        && !string.IsNullOrEmpty(Convert.ToString(chkBox.GetItemText(chkBox.Items[i]))))
+                    {
+                        strValues += ";" + Convert.ToString(chkBox.GetItemText(chkBox.Items[i]));
+                    }
+                }
+                strValues = strValues.TrimStart(';');
+
+                if (!string.IsNullOrEmpty(strValues.Trim()))
+                {
+                    string[] arrValues = strValues.Split(';');
+
+                    lstResult = arrValues.ToList<string>();
+                }
             }
             catch (Exception ex)
             {
                 lblSourceSiteErrorLog.Text = ex.ToString();
             }
-
-
-
+            return lstResult;
         }
+        //This function is use for get the template of Source Site.
         private void GetProvisioningTemplate(string SourceWebUrl, string SourceUserName, SecureString SourcePassword, String SourceFileLocation)
         {
             using (var ctx = new ClientContext(SourceWebUrl))
@@ -209,11 +193,6 @@ namespace SiteMigrationProject
                     Web web = ctx.Web;
                     ctx.Load(web, w => w.Title);
                     ctx.ExecuteQueryRetry();
-                    //ctx.Load(this.List, l => l.RootFolder.ServerRelativeUrl);
-                    //ctx.ExecuteQueryRetry();
-                    // Microsoft.SharePoint.Client.FieldCollection fields = this.List.Fields;
-                    /// ctx.Load(fields);
-
                     ProvisioningTemplateCreationInformation ptci
                             = new ProvisioningTemplateCreationInformation(ctx.Web);
                     // Create FileSystemConnector to store a temporary copy of the template
@@ -227,8 +206,8 @@ namespace SiteMigrationProject
                     bool IsList = false, IsNavigation = false, IsSiteField = false, IsContentType = false, IsFiles = false, IsPage = false, IsCustomAction = false, IsFeatures = false, IsWorkFlows = false, IsSiteHeader = false, IsSiteFooter = false, IsTheme = false;
                     bool IsRegionalSetting = false, IsSitePolicy = false, IsSupportedUILanguages = false, IsAuditSettings = false, IsPropertyBagEntries = false, IsSecurity = false, IsComposedLook = false, IsPublishing = false, IsTenant = false;
                     bool IsTermGroups = false, IsSearchSetting = false, IsWebSettings = false, IsImageRenditions = false, IsApplicationLifecycleManagement = false, IsWebApiPermissions = false;
-                    // template.Navigation.GlobalNavigation.StructuralNavigation.RemoveExistingNodes = true;
-                    //template.Navigation.CurrentNavigation.StructuralNavigation.RemoveExistingNodes = true;
+                    template.Navigation.GlobalNavigation.StructuralNavigation.RemoveExistingNodes = true;
+                    template.Navigation.CurrentNavigation.StructuralNavigation.RemoveExistingNodes = true;
                     foreach (object itemChecked in chkTemplateOptions.CheckedItems)
                     {
                         if (itemChecked.ToString() == "All")
@@ -236,7 +215,14 @@ namespace SiteMigrationProject
                             try
                             {
                                 IsAllSelected = true;
-                                AddListItemWithData(ctx, template, web);
+                                if (XMLWithData == true)
+                                {
+                                    AddListItemWithData(ctx, template);
+                                }
+                                else
+                                {
+                                    AddListItemWithoutData(ctx, template, web);
+                                }
                                 break;
                             }
                             catch (Exception ex)
@@ -249,7 +235,14 @@ namespace SiteMigrationProject
                         {
                             if (itemChecked.ToString() == "Lists")
                             {
-                                AddListItemWithData(ctx, template, web);
+                                if (XMLWithData == true)
+                                {
+                                    AddListItemWithData(ctx, template);
+                                }
+                                else
+                                {
+                                    AddListItemWithoutData(ctx, template, web);
+                                }
                                 IsList = true;
                             }
                             if (itemChecked.ToString() == "Navigation")
@@ -487,8 +480,7 @@ namespace SiteMigrationProject
 
                     }
 
-                    // We can serialize this template to save and reuse it
-                    // Optional step
+
                     XMLTemplateProvider provider =
                                 new XMLFileSystemTemplateProvider(SourceFileLocation, "");
                     provider.SaveAs(template, StrFileName + ".xml");
@@ -501,149 +493,18 @@ namespace SiteMigrationProject
 
             }
         }
-        private void AddListItemWithData(ClientContext ctx, OfficeDevPnP.Core.Framework.Provisioning.Model.ProvisioningTemplate template, Web web)
+        //This function is use for get all list structure without data.
+        private void AddListItemWithoutData(ClientContext ctx, ProvisioningTemplate template, Web web)
         {
             ListInstanceCollection LstInstanceColl = new ListInstanceCollection(template);
             if (ChkListName.CheckedItems.Count > 0)
             {
                 try
                 {
-                    foreach (var chkitem in ChkListName.CheckedItems)
+                    foreach (var item in ChkListName.CheckedItems)
                     {
-                        if (!chkitem.Equals("All"))
-                        {
-                            var items = new List<ListItemInfo>();
-                            OfficeDevPnP.Core.Framework.Provisioning.Model.ListInstance ListInstance = template.Lists.Find(listTemp => listTemp.Title == ((System.Web.UI.WebControls.ListItem)chkitem).Text);
-                            ///
-                            Dictionary<string, string> dataValues = new Dictionary<string, string>();
-                            List ListObject = ctx.Web.Lists.GetByTitle(((System.Web.UI.WebControls.ListItem)chkitem).Text);
-                            ctx.Load(ListObject);
-                            ctx.ExecuteQuery();
-                            // This creates a CamlQuery" 
-                            // so that it grabs all list items, regardless of the folder they are in. 
-                            CamlQuery query = CamlQuery.CreateAllItemsQuery();
-                            // CamlQuery camlQuery = new CamlQuery();
-                            ListItemCollection itemCollection = ListObject.GetItems(query);
-                            // camlQuery.ViewXml = "<View><RowLimit>100</RowLimit></View>";
-                            // Retrieve all items in the ListItemCollection from List.GetItems(Query). 
-                            ctx.Load(itemCollection);
-                            ctx.ExecuteQuery();
-                            Microsoft.SharePoint.Client.FieldCollection fieldscoll = ListObject.Fields;
-                            ctx.Load(fieldscoll);
-                            ctx.ExecuteQuery();
-                            List<Field> fields = new List<Field>();
-                            foreach (Field field in fieldscoll)
-                            {
-                                if (CanFieldContentBeIncluded(field, true, ListObject))
-                                {
-                                    fields.Add(field);
-                                }
-                            }
-                            foreach (ListItem item in itemCollection)
-                            {
-                                try
-                                {
-                                    Dictionary<string, string> values = new Dictionary<string, string>();
-                                    foreach (Microsoft.SharePoint.Client.Field field in fields)
-                                    {
-                                        if (field.TypeAsString != "Computed" && field.TypeAsString != "Calculated" && field.InternalName != "ContentType" && field.Hidden == false && field.ReadOnlyField == false && field.Sealed == false && field.InternalName != "ImageSize" && field.InternalName != "FileType")
-                                        {
-                                            //          Field field = fields.FirstOrDefault(
-                                            //f => f.InternalName ==Convert.ToString(item.Client_Title));
-                                            if (CanFieldContentBeIncluded(field, true, ListObject))
-                                            {
-                                                string str = "";
-                                                object value = null; ;
-                                                try
-                                                {
-                                                    value = item[field.InternalName];
-                                                }
-                                                catch (Exception ex)
-                                                {
-                                                    lblSourceSiteErrorLog.Text = ex.ToString();
-                                                }
-                                                if (null != value)
-                                                {
-                                                    try
-                                                    {
-
-                                                        FieldValueProvider Fieldprovider = GetFieldValueProvider(field, web);
-                                                        str = Fieldprovider.GetValidatedValue(value);
-                                                        ////
-                                                        if (null != Fieldprovider)
-                                                        {
-                                                            object itemValue = Fieldprovider.GetFieldValueTyped(str);
-                                                            if (null != itemValue)
-                                                            {
-                                                                if (field.FieldTypeKind == FieldType.Lookup)
-                                                                {
-                                                                    //XmlDocument xmlDocSchemaXml = new XmlDocument();
-                                                                    //xmlDocSchemaXml.LoadXml(field.SchemaXml);
-                                                                    //if (xmlDocSchemaXml.DocumentElement.Attributes["List"] != null)
-                                                                    //{
-                                                                    //    string ListId = xmlDocSchemaXml.DocumentElement.Attributes["List"].Value;
-                                                                    //    string ColumnName = xmlDocSchemaXml.DocumentElement.Attributes["ShowField"].Value;
-                                                                    //    int ItemId = Convert.ToInt32(((Microsoft.SharePoint.Client.FieldLookupValue)itemValue).LookupId);
-                                                                    //    str = GetLookupFieldOptions(ctx, ListId, ColumnName, ItemId);
-                                                                    //}
-                                                                    FieldLookup lookupField = (FieldLookup)field;
-                                                                    RegisterLookupReference(lookupField, item, itemValue);
-                                                                }
-                                                                else
-                                                                {
-                                                                    item[field.InternalName] = itemValue;
-                                                                }
-                                                            }
-                                                        }
-                                                        ///
-                                                    }
-                                                    catch (Exception ex)
-                                                    {
-                                                        lblSourceSiteErrorLog.Text = ex.ToString();
-                                                    }
-                                                    if (!string.IsNullOrEmpty(str))
-                                                    {
-                                                        values.Add(field.InternalName, str);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    DataRow dataRow = new DataRow(values);
-                                    ListInstance.DataRows.Add(dataRow);
-                                    items.Add(new ListItemInfo()
-                                    {
-                                        Item = item,
-                                        Row = dataRow
-                                    });
-                                }
-                                catch (Exception ex)
-                                {
-                                    lblSourceSiteErrorLog.Text = ex.ToString();
-                                }
-
-                                foreach (ListItemInfo itemInfo in items)
-                                {
-                                    try
-                                    {
-                                        var listitem = itemInfo.Item;
-                                        var dataRow = itemInfo.Row;
-                                        if (0 < listitem.Id)
-                                        {
-                                            AddIDMappingEntry(listitem, dataRow);
-
-                                        }
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                    }
-                                }
-                            }
-
-                            LstInstanceColl.Add(ListInstance);
-                        }
-
+                        ListInstance ListInstance = template.Lists.Find(listTemp => listTemp.Title == ((System.Web.UI.WebControls.ListItem)item).Text);
+                        LstInstanceColl.Add(ListInstance);
                     }
                     template.Lists.Clear();
                     foreach (var listInstance in LstInstanceColl)
@@ -658,166 +519,279 @@ namespace SiteMigrationProject
 
             }
 
+
         }
-        public static string GetLookupFieldOptions(ClientContext clientContext, string ListID, string ColumnName, int LookupId)
+        //This function is use for get all list structure with data.
+        private void AddListItemWithData(ClientContext ctx, ProvisioningTemplate template)
         {
-            string LookupValue = "";
             try
             {
-                //List<LookupValues> ListLookupValues = new List<LookupValues> { };
-                Guid ListGUID = new Guid(ListID);
-                SP.List oList = clientContext.Web.Lists.GetById(ListGUID);
-
-                CamlQuery camlQuery = new CamlQuery();
-                // camlQuery.ViewXml = "<View><Query><Where><Eq><FieldRef Name ='Country'/><Value Type ='Lookup'>5</Value></Eq></Where></Query></View>";
-
-                ListItemCollection collListItem = oList.GetItems(camlQuery);
-
-                clientContext.Load(collListItem);
-
-                clientContext.ExecuteQuery();
-
-                foreach (ListItem oListItem in collListItem)
+                string StrSourceWebUrl = string.Empty;
+                string StrSourceUserName = string.Empty;
+                string StrSourcePassword = string.Empty;
+                if (txtSourceSiteName.Text != string.Empty)
                 {
-                    LookupValue = Convert.ToString(oListItem["Title"]);
+                    StrSourceWebUrl = txtSourceSiteName.Text;
                 }
-                return LookupValue;
-            }
-            catch (Exception)
-            {
-                throw;
-            }
-        }
-        private void RegisterLookupReference(FieldLookup lookupField, ListItem listitem, object itemValue)
-        {
-            if (null != itemValue)
-            {
-                if (null == m_lookups)
+                if (txtUsername.Text != string.Empty)
                 {
-                    m_lookups = new Dictionary<string, LookupDataRef>();
+                    StrSourceUserName = txtUsername.Text;
+                }
+                if (txtPassword.Text != string.Empty)
+                {
+                    StrSourcePassword = txtPassword.Text;
+                }
+                SecureString SecureSourcePassword = new SecureString();
+                foreach (char c in StrSourcePassword.ToCharArray()) SecureSourcePassword.AppendChar(c);
+                string StrTargetWebUrl = string.Empty;
+                string StrTargetUserName = string.Empty;
+                string StrTargetPassword = string.Empty;
+                if (txtDestinationSiteName.Text != string.Empty)
+                {
+                    StrTargetWebUrl = txtDestinationSiteName.Text;
                 }
 
-                FieldLookupValue[] value = itemValue as FieldLookupValue[];
-
-                LookupDataRef lookupRef = null;
-                if (!m_lookups.TryGetValue(lookupField.InternalName, out lookupRef))
+                if (txtDesUsername.Text != string.Empty)
                 {
-                    lookupRef = new LookupDataRef(lookupField);
-                    m_lookups.Add(lookupField.InternalName, lookupRef);
+                    StrTargetUserName = txtDesUsername.Text;
                 }
-                lookupRef.ItemLookupValues.Add(listitem, itemValue);
-            }
-        }
-        public void UpdateLookups(Func<Guid, Form1> fnGetLookupDependentProvider)
-        {
-            if (null != m_lookups)
-            {
-                bool valueUpdated = false;
-                foreach (KeyValuePair<string, LookupDataRef> pair in m_lookups)
+                if (txtDesPassword.Text != string.Empty)
                 {
-                    LookupDataRef lookupData = pair.Value;
-                    if (0 < lookupData.ItemLookupValues.Count)
-                    {
-                        Guid sourceListId = Guid.Empty;
-                        try
-                        {
-                            sourceListId = new Guid(lookupData.Field.LookupList);
-                        }
-                        catch (Exception ex)
-                        {
-                            // scope.LogError(ex, "Failed to get source list for lookup field. Field Name: {0}, Source List: {1}.",
-                            //  lookupData.Field.InternalName, lookupData.Field.LookupList);
-                        }
-                        if (!Guid.Empty.Equals(sourceListId))
-                        {
-                            Form1 sourceProvider = fnGetLookupDependentProvider(sourceListId);
-                            if ((null != sourceProvider) && (null != sourceProvider.m_mappingIDs))
-                            {
-                                foreach (KeyValuePair<ListItem, object> lookupPair in lookupData.ItemLookupValues)
-                                {
-                                    ListItem item = lookupPair.Key;
-                                    object newItemValue = null;
-                                    object oldItemValue = lookupPair.Value;
-                                    FieldLookupValue oldLookupValue = oldItemValue as FieldLookupValue;
-                                    if (null != oldLookupValue)
-                                    {
-                                        int lookupId = oldLookupValue.LookupId;
-                                        int newId;
-                                        if (sourceProvider.m_mappingIDs.TryGetValue(lookupId, out newId) && (0 < newId))
-                                        {
-                                            newItemValue = new FieldLookupValue()
-                                            {
-                                                LookupId = newId
-                                            };
-                                        }
-                                    }
-                                    else
-                                    {
-                                        List<FieldLookupValue> newLookupValues = new List<FieldLookupValue>();
-                                        FieldLookupValue[] oldLookupValues = oldItemValue as FieldLookupValue[];
-                                        if ((null != oldLookupValues) && (0 < oldLookupValues.Length))
-                                        {
-                                            foreach (FieldLookupValue val in oldLookupValues)
-                                            {
-                                                int newId;
-                                                if (sourceProvider.m_mappingIDs.TryGetValue(val.LookupId, out newId) && (0 < newId))
-                                                {
-                                                    newLookupValues.Add(new FieldLookupValue()
-                                                    {
-                                                        LookupId = newId
-                                                    });
-                                                }
-                                            }
-                                        }
-                                        if (0 < newLookupValues.Count)
-                                        {
-                                            newItemValue = newLookupValues.ToArray();
-                                        }
-                                    }
-                                    if (null != newItemValue)
-                                    {
-                                        item[lookupData.Field.InternalName] = newItemValue;
-                                        item.Update();
-
-                                        valueUpdated = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    StrTargetPassword = txtDesPassword.Text;
                 }
-                if (valueUpdated)
+                SecureString SecureTargetPassword = new SecureString();
+                foreach (char c in StrTargetPassword.ToCharArray()) SecureTargetPassword.AppendChar(c);
+                var ctxSource = new ClientContext(StrSourceWebUrl);
+                ctxSource.Credentials = new SharePointOnlineCredentials(StrSourceUserName, SecureSourcePassword);
+                ctxSource.RequestTimeout = Timeout.Infinite;
+                // Just to output the site details
+                Web web = ctxSource.Web;
+                ctxSource.Load(web, w => w.Title);
+                ctxSource.ExecuteQuery();
+                var ctxDest = new ClientContext(StrTargetWebUrl);
+                ctxDest.Credentials = new SharePointOnlineCredentials(StrTargetUserName, SecureTargetPassword);
+                ctxDest.RequestTimeout = Timeout.Infinite;
+                // Just to output the site details
+                Web Desweb = ctxDest.Web;
+                ctxDest.Load(Desweb, w => w.Title);
+                ctxDest.ExecuteQuery();
+                List<string> lstGetSelectedLists = new List<string>();
+                lstGetSelectedLists = GetSelectedValuesFromCheckBoxList(ChkListName);
+                ListInstanceCollection LstInstanceColl = new ListInstanceCollection(template);
+                if (ChkListName.CheckedItems.Count > 0)
                 {
                     try
                     {
-                        this.Context.ExecuteQueryRetry();
+                        ListCollection lstSourceLists = ctxSource.Web.Lists;
+                        ctxSource.Load(lstSourceLists, x => x.Include(y => y.Title, y => y.BaseTemplate));
+                        ctxSource.ExecuteQuery();
+
+                        ListCollection lstDestLists = ctxDest.Web.Lists;
+                        ctxDest.Load(lstDestLists, x => x.Include(y => y.Title, y => y.BaseTemplate));
+                        ctxDest.ExecuteQuery();
+                        if (lstSourceLists != null && lstDestLists != null && lstSourceLists.Count > 0 && lstDestLists.Count > 0)
+                        {
+                            string[] arrSourceLists = (from p in lstSourceLists
+                                                       where
+                                                           CommonHelper.AllowedBaseTemplates.Contains(p.BaseTemplate)
+                                                       select p.Title).ToArray();
+                            string[] arrDestLists = (from p in lstDestLists where CommonHelper.AllowedBaseTemplates.Contains(p.BaseTemplate) select p.Title).ToArray();
+
+                            string[] arrCommonLists = arrSourceLists.Intersect(arrDestLists).ToArray();
+
+                            arrCommonLists = arrCommonLists.Where(y => lstGetSelectedLists.Contains(y)).ToArray();
+
+                            if (arrCommonLists.Length > 0)
+                            {
+                                List<LookupColumnDetails> lstLookupColumnDetails = new List<LookupColumnDetails>();
+                                // ShowUpdates("Fetching List Lookup Column Details : " + DateTime.Now);
+
+                                Dictionary<string, List<string>> dicListLookupDetails = GetListLookupDetailsDictionary(ctxSource, arrCommonLists,
+                                    ref lstLookupColumnDetails);
+
+                                if (dicListLookupDetails != null && dicListLookupDetails.Count > 0)
+                                {
+                                    List<string> lstSelfLookupLists = new List<string>();
+                                    List<string> lstFinalListOrder = new List<string>();
+                                    List<string> lstParentLists = new List<string>();
+
+                                    //  ShowUpdates("Identifying List Migration Order : " + DateTime.Now);
+                                    ProcessLists(ctxSource, ref dicListLookupDetails, ref lstFinalListOrder, ref lstSelfLookupLists,
+                                        ref lstParentLists);
+
+                                    //if (dicListLookupDetails.Count == 0)
+                                    //{
+                                    //string strListOrder = string.Empty;
+                                    StringBuilder sb = new StringBuilder();
+
+                                    sb.Append(Environment.NewLine);
+                                    sb.Append("LIST MIGRATION ORDER (based on the lookup Columns)");
+                                    sb.Append(Environment.NewLine);
+                                    sb.Append(Environment.NewLine);
+
+                                    // all lists order has been set
+                                    foreach (var t in lstFinalListOrder)
+                                    {
+                                        sb.Append(t);
+                                        sb.Append(Environment.NewLine);
+                                    }
+
+                                    sb.Append(Environment.NewLine);
+                                    sb.Append("LIST Deletion Script Lists");
+                                    sb.Append(Environment.NewLine);
+                                    sb.Append(Environment.NewLine);
+
+                                    // all lists order has been set
+                                    foreach (var t in lstFinalListOrder.Reverse<string>())
+                                    {
+                                        sb.Append(t);
+                                        sb.Append(",");
+                                    }
+
+                                    lblSourceSiteErrorLog.Text = sb.ToString();
+
+                                    foreach (var chkitem in lstFinalListOrder)
+                                    {
+                                        ListInstance ListInstance = template.Lists.Find(listTemp => listTemp.Title == chkitem);
+                                        ///
+                                        Dictionary<string, string> dataValues = new Dictionary<string, string>();
+                                        List ListObject = ctx.Web.Lists.GetByTitle(chkitem);
+                                        ctx.Load(ListObject);
+                                        ctx.ExecuteQuery();
+                                        // This creates a CamlQuery" 
+                                        // so that it grabs all list items, regardless of the folder they are in. 
+                                        CamlQuery query = CamlQuery.CreateAllItemsQuery();
+                                        ListItemCollection itemCollection = ListObject.GetItems(query);
+                                        // Retrieve all items in the ListItemCollection from List.GetItems(Query). 
+                                        ctx.Load(itemCollection);
+                                        ctx.ExecuteQuery();
+                                        Microsoft.SharePoint.Client.FieldCollection fieldscoll = ListObject.Fields;
+                                        ctx.Load(fieldscoll);
+                                        ctx.ExecuteQuery();
+                                        List<Field> fields = new List<Field>();
+                                        foreach (Field field in fieldscoll)
+                                        {
+                                            if (CanFieldContentBeIncluded(field, true, ListObject))
+                                            {
+                                                fields.Add(field);
+                                            }
+                                        }
+                                        foreach (ListItem item in itemCollection)
+                                        {
+                                            try
+                                            {
+                                                Dictionary<string, string> values = new Dictionary<string, string>();
+                                                foreach (Microsoft.SharePoint.Client.Field field in fields)
+                                                {
+                                                    if (CanFieldContentBeIncluded(field, true, ListObject))
+                                                    {
+                                                        string str = "";
+                                                        object value = null; ;
+                                                        try
+                                                        {
+                                                            value = item[field.InternalName];
+                                                        }
+                                                        catch (Exception ex)
+                                                        {
+                                                            lblSourceSiteErrorLog.Text = ex.ToString();
+                                                        }
+                                                        if (null != value)
+                                                        {
+                                                            try
+                                                            {
+                                                                FieldValueProvider Fieldprovider = GetFieldValueProvider(field, web);
+                                                                str = Fieldprovider.GetValidatedValue(value);
+                                                            }
+                                                            catch (Exception ex)
+                                                            {
+                                                                lblSourceSiteErrorLog.Text = ex.ToString();
+                                                            }
+                                                            if (!string.IsNullOrEmpty(str))
+                                                            {
+                                                                values.Add(field.InternalName, str);
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                DataRow dataRow = new DataRow(values);
+                                                ListInstance.DataRows.Add(dataRow);
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                lblSourceSiteErrorLog.Text = ex.ToString();
+                                            }
+                                        }
+                                        LstInstanceColl.Add(ListInstance);
+
+
+                                    }
+                                    template.Lists.Clear();
+                                    foreach (var listInstance in LstInstanceColl)
+                                    {
+                                        template.Lists.Add(listInstance);
+                                    }
+                                }
+                                else
+                                {
+                                    // Process further
+                                }
+                                //}
+                            }
+                        }
                     }
                     catch (Exception ex)
                     {
-                        string lookupFieldNames = string.Join(", ", m_lookups.Select(pair => pair.Value.Field.InternalName).ToArray());
-                        // scope.LogError(ex, "Failed to set lookup values. List: '{0}', Lookup Fields: {1}.", this.List.Title, lookupFieldNames);
+                        lblSourceSiteErrorLog.Text = ex.ToString();
                     }
                 }
             }
+            catch (Exception ex)
+            {
+                lblSourceSiteErrorLog.Text = ex.ToString();
+            }
+
         }
-
-
-        private void btnBrowse_Click_1(object sender, EventArgs e)
+        //This function is use for update lookup value in list after data is inserted.
+        private void UpdateLookupValues(Web web)
         {
             try
             {
-                DialogResult result = openFileDialog1.ShowDialog();
-                if (result == DialogResult.OK) // Test result.
+                if (null != m_listContentProviders)
                 {
-                    txtDesXMLFileName.Text = openFileDialog1.FileName;
+                    foreach (KeyValuePair<Guid, ListItemsProvider> pair in m_listContentProviders)
+                    {
+                        Guid listId = pair.Key;
+                        ListItemsProvider provider = pair.Value;
+
+                        provider.UpdateLookups(GetLookupDependentProvider);
+                    }
                 }
             }
             catch (Exception ex)
             {
                 lblTargetSiteErrorLog.Text = ex.ToString();
             }
-
+            
         }
+        //This function is use for to get the lookup dependent provider.
+        private ListItemsProvider GetLookupDependentProvider(Guid listId)
+        {
+            try
+            {
+                ListItemsProvider provider;
+                if ((null != m_listContentProviders) && m_listContentProviders.TryGetValue(listId, out provider))
+                {
+                    return provider;
+                }
+               
+            }
+            catch (Exception ex)
+            {
+                lblTargetSiteErrorLog.Text = ex.ToString();
+            }
+            return null;
+        }
+        //This function is use for apply the template for target site.
         private void ApplyProvisioningTemplate(string TargetWebUrl, string TargetUserName, SecureString TargetSecurePassword, String TargetLocation, String TargetFile)
         {
             using (var ClientContext = new ClientContext(TargetWebUrl))
@@ -831,37 +805,44 @@ namespace SiteMigrationProject
                     ClientContext.Load(web, w => w.Title);
                     ClientContext.ExecuteQueryRetry();
 
-                    //   RemoveCalculatedColumnBeforeApplyTemplate(ClientContext);
+                    RemoveCalculatedColumnBeforeApplyTemplate(ClientContext);
                     ProvisioningTemplateApplyingInformation ptai = new ProvisioningTemplateApplyingInformation();
                     XMLFileSystemTemplateProvider provider = new XMLFileSystemTemplateProvider(TargetLocation, TargetFile);
                     OfficeDevPnP.Core.Framework.Provisioning.Model.ProvisioningTemplate ApplyTemplateFile = provider.GetTemplate(TargetFile);
+                    
+                    //****************
+                    //This code is use for replace the ";#"  with "," to solve the issue of multilookup values.
 
-                    XmlDocument xmlDoc = new XmlDocument();
-                    xmlDoc.LoadXml(ApplyTemplateFile.ToXML());
-                    XDocument doc = XDocument.Load(TargetFile);
-                    // XElement element = doc.Root;
-                    //string element = xmlDoc.InnerText;
-                    xmlDoc.InnerXml = xmlDoc.InnerXml.Replace(";#", ",");
-                    xmlDoc.Save(TargetFile);
-                    // doc.Save(TargetFile);
-                    OfficeDevPnP.Core.Framework.Provisioning.Model.ProvisioningTemplate AfterReplaceApplyTemplateFile = provider.GetTemplate(TargetFile);
+                    //XmlDocument xmlDoc = new XmlDocument();
+                    //xmlDoc.LoadXml(ApplyTemplateFile.ToXML());
+                    //XDocument doc = XDocument.Load(TargetFile);
+                    //xmlDoc.InnerXml = xmlDoc.InnerXml.Replace(";#", ",");
+                    //xmlDoc.Save(TargetFile);
+                    //OfficeDevPnP.Core.Framework.Provisioning.Model.ProvisioningTemplate AfterReplaceApplyTemplateFile = provider.GetTemplate(TargetFile);
                     //ReplaceAll(element, doc, ApplyTemplateFile);
-                    //string StrPath = txtAssetsPath.Text;
-                    //string[] strAssetsPath = txtAssetsPath.Text.Split('\\');
-                    //int Count = strAssetsPath.Length - 1;
-                    //string strFolder = strAssetsPath[Count];
-                    //string Path = Environment.CurrentDirectory + "\\" + strFolder;
-                    //DirectoryCopy(StrPath, strFolder, true);
-                    web.ApplyProvisioningTemplate(AfterReplaceApplyTemplateFile, ptai);
-                    ListCollection ListColl = web.Lists;
-                    ClientContext.Load(ListColl);
-                    foreach (List LstGuid in ListColl)
+
+                    //************
+                    var parser = new TokenParser(ClientContext.Web, ApplyTemplateFile);
+                    foreach (var listInstance in ApplyTemplateFile.Lists)
                     {
-                        ListItemsProvider itemProvider = new ListItemsProvider(List, web, AfterReplaceApplyTemplateFile);
-                        Func<Guid, ListItemsProvider> LookupSourceProvider = null;
-                        itemProvider.UpdateLookups(LookupSourceProvider);
+                        if (listInstance.DataRows != null && listInstance.DataRows.Any())
+                        {
+                            // Retrieve the target list
+                            var list = web.Lists.GetByTitle(listInstance.Title);
+                            web.Context.Load(list);
+                            web.Context.ExecuteQueryRetry();
+
+                            ListItemsProvider Listitemprovider = new ListItemsProvider(list, web, ApplyTemplateFile);
+                            Listitemprovider.AddListItems(listInstance.DataRows, ApplyTemplateFile, parser);
+                            if (null == m_listContentProviders)
+                            {
+                                m_listContentProviders = new Dictionary<Guid, ListItemsProvider>();
+                            }
+                            m_listContentProviders[list.Id] = Listitemprovider;
+                        }
                     }
-                    //DeleteDirectory(Path);
+
+                    UpdateLookupValues(web);
                 }
                 catch (Exception ex)
                 {
@@ -875,356 +856,151 @@ namespace SiteMigrationProject
             }
             // return template;
         }
-        static void ReplaceAll(XElement element, XDocument document, OfficeDevPnP.Core.Framework.Provisioning.Model.ProvisioningTemplate ApplyTemplateFile)
-        {
-            foreach (var item in element.Elements())
-            {
-                if (item.HasElements)
-                {
-                    ReplaceAll(element, document, ApplyTemplateFile);
-                }
-            }
-            element.Value.Replace(";#", ",");
-            document.Save(ApplyTemplateFile.ToXML());
-
-        }
-        //private List<Field> GetListContentSerializableFields(List Listname,bool serialize)
-        //{
-        //    Microsoft.SharePoint.Client.FieldCollection spfields = Listname.Fields;
-        //    List<Field> fields = new List<Field>();
-        //    foreach (Field field in spfields)
-        //    {
-        //        if (CanFieldContentBeIncluded(field, serialize))
-        //        {
-        //            fields.Add(field);
-        //        }
-        //    }
-        //    return fields;
-        //}
-        //public List<DataRow> ExtractItems(ProvisioningTemplateCreationInformation creationInfo, TokenParser parser, PnPMonitoredScope scope)
-        //{
-        //    List<DataRow> dataRows = new List<DataRow>();
-
-        //    bool isPageLib = (List.BaseTemplate == (int)ListTemplateType.WebPageLibrary) ||
-        //        (List.BaseTemplate == (int)ListTemplateType.HomePageLibrary);
-        //    //||
-        //        //(List.BaseTemplate == (int)ListTemplateType.PublishingPages);
-
-        //    CamlQuery query = isPageLib ? CamlQuery.CreateAllFoldersQuery() : CamlQuery.CreateAllItemsQuery();
-        //    query.DatesInUtc = true;
-        //    ListItemCollection items = this.List.GetItems(query);
-        //    this.Context.Load(items, col => col.IncludeWithDefaultProperties(i => i.HasUniqueRoleAssignments));
-        //    this.Context.Load(this.List.Fields);
-        //    this.Context.Load(this.List, l => l.RootFolder.ServerRelativeUrl, l => l.BaseType);
-        //    this.Context.ExecuteQueryRetry();
-
-        //    ItemPathProvider itemPathProvider = new ItemPathProvider(this.List, this.Web);
-
-        //    List<Field> fields = GetListContentSerializableFields(true);
-        //    foreach (ListItem item in items)
-        //    {
-        //        try
-        //        {
-        //            Dictionary<string, string> values = new Dictionary<string, string>();
-        //            foreach (Field field in fields)
-        //            {
-        //                if (CanFieldContentBeIncluded(field, true))
-        //                {
-        //                    string str = "";
-        //                    object value = null; ;
-        //                    try
-        //                    {
-        //                        value = item[field.InternalName];
-        //                    }
-        //                    catch (Exception ex)
-        //                    {
-        //                        scope.LogWarning(ex,
-        //                            "Failed to read item field value. List:{0}, Item ID:{1}, Field: {2}", this.List.Title, item.Id, field.InternalName);
-        //                    }
-        //                    if (null != value)
-        //                    {
-        //                        try
-        //                        {
-        //                            FieldValueProvider provider = GetFieldValueProvider(field, this.Web);
-        //                            str = provider.GetValidatedValue(value);
-        //                        }
-        //                        catch (Exception ex)
-        //                        {
-        //                            scope.LogWarning(ex,
-        //                                "Failed to serialize item field value. List:{0}, Item ID:{1}, Field: {2}", this.List.Title, item.Id, field.InternalName);
-        //                        }
-        //                        if (!string.IsNullOrEmpty(str))
-        //                        {
-        //                            values.Add(field.InternalName, str);
-        //                        }
-        //                    }
-        //                }
-        //            }
-
-        //            string fileSrc;
-        //            itemPathProvider.ExtractItemPathValues(item, values, creationInfo, out fileSrc);
-
-        //            if (values.Any())
-        //            {
-        //                ObjectSecurity security = null;
-        //                if (item.HasUniqueRoleAssignments)
-        //                {
-        //                    try
-        //                    {
-        //                      //  security = item.GetSecurity(parser);
-        //                       // security.ClearSubscopes = true;
-        //                    }
-        //                    catch (Exception ex)
-        //                    {
-        //                        scope.LogWarning(ex, "Failed to get item security. Item ID: {0}, List: '{1}'.", item.Id, this.List.Title);
-        //                    }
-        //                }
-
-        //                DataRow row = new DataRow(values, security, fileSrc);
-        //                dataRows.Add(row);
-        //            }
-        //        }
-        //        catch (Exception ex)
-        //        {
-        //            scope.LogError(ex, "Failed to save item in template. Item ID: {0}, List: '{1}'.", item.Id, this.List.Title);
-        //        }
-        //    }
-
-        //    return dataRows;
-        //}
+        //This function is use for copy the files and folder from one directory to other directoy. 
         private void DirectoryCopy(
             string sourceDirName, string destDirName, bool copySubDirs)
         {
-            DirectoryInfo dir = new DirectoryInfo(sourceDirName);
-            DirectoryInfo[] dirs = dir.GetDirectories();
-
-            // If the source directory does not exist, throw an exception.
-            if (!dir.Exists)
-            {
-                throw new DirectoryNotFoundException(
-                    "Source directory does not exist or could not be found: "
-                    + sourceDirName);
-            }
-
-            DirectoryInfo dirInfo = new DirectoryInfo(destDirName);
-            if (dirInfo.Exists == false)
-                System.IO.Directory.CreateDirectory(destDirName);
-
-
-            // Get the file contents of the directory to copy.
-            FileInfo[] files = dir.GetFiles();
-
-            foreach (FileInfo file in files)
-            {
-                // Create the path to the new copy of the file.
-                string temppath = Path.Combine(destDirName, file.Name);
-
-                // Copy the file.
-                file.CopyTo(temppath, false);
-            }
-            //List<String> AllFiles = System.IO.Directory
-            //                   .GetFiles(sourceDirName, "*.*", SearchOption.AllDirectories).ToList();
-
-            //foreach (string file in AllFiles)
-            //{
-            //    FileInfo File = new FileInfo(file);
-            //    // to remove name collisions
-            //    if (new FileInfo(dir + "\\" + File.Name).Exists == false)
-            //    {
-            //        File.MoveTo(dir + "\\" + File.Name);
-            //    }
-            //  }
-            // If copySubDirs is true, copy the subdirectories.
-            if (copySubDirs)
-            {
-
-                foreach (DirectoryInfo subdir in dirs)
-                {
-                    // Create the subdirectory.
-                    string temppath = Path.Combine(destDirName, subdir.Name);
-
-                    // Copy the subdirectories.
-                    DirectoryCopy(subdir.FullName, temppath, copySubDirs);
-                }
-            }
-        }
-        private void DeleteDirectory(string path)
-        {
-            if (System.IO.Directory.Exists(path))
-            {
-                //Delete all files from the Directory
-                foreach (string file in System.IO.Directory.GetFiles(path))
-                {
-                    System.IO.File.Delete(file);
-                }
-                //Delete all child Directories
-                foreach (string directory in System.IO.Directory.GetDirectories(path))
-                {
-                    DeleteDirectory(directory);
-                }
-                //Delete a Directory
-                System.IO.Directory.Delete(path);
-            }
-        }
-        private List<Field> GetListContentSerializableFields(bool v)
-        {
-            throw new NotImplementedException();
-        }
-
-        private bool CanFieldContentBeIncluded(Field field, bool serialize, List ListObj)
-        {
-            bool result = false;
-            if (field.InternalName.Equals("ID", StringComparison.OrdinalIgnoreCase))
-            {
-                result = serialize;
-            }
-            else if (field.InternalName.Equals("ContentTypeId", StringComparison.OrdinalIgnoreCase) && ListObj.ContentTypesEnabled)
-            {
-                result = true;
-            }
-            else if (field.InternalName.Equals("Attachments", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-            else
-            {
-                if (!field.Hidden && !field.ReadOnlyField && (field.FieldTypeKind != FieldType.Computed))
-                {
-                    //Temporary disabled for custom fields
-                    if (field.FieldTypeKind != FieldType.Invalid)
-                    {
-                        result = true;
-                    }
-                }
-            }
-            return result;
-        }
-        private FieldValueProvider GetFieldValueProvider(Field field, Web web)
-        {
-            FieldValueProvider provider = null;
-
-            if (null == m_dictFieldValueProviders)
-            {
-                m_dictFieldValueProviders = new Dictionary<string, FieldValueProvider>();
-            }
-            if (!m_dictFieldValueProviders.TryGetValue(field.InternalName, out provider))
-            {
-                provider = new FieldValueProvider(field, web);
-                m_dictFieldValueProviders.Add(field.InternalName, provider);
-            }
-
-            return provider;
-        }
-
-        private void btnSourceBrowse_Click(object sender, EventArgs e)
-        {
             try
             {
-                DialogResult result = folderBrowserDialog1.ShowDialog();
-                if (result == DialogResult.OK) // Test result.
+                DirectoryInfo dir = new DirectoryInfo(sourceDirName);
+                DirectoryInfo[] dirs = dir.GetDirectories();
+
+                // If the source directory does not exist, throw an exception.
+                if (!dir.Exists)
                 {
-                    txtFileLocation.Text = folderBrowserDialog1.SelectedPath;
+                    throw new DirectoryNotFoundException(
+                        "Source directory does not exist or could not be found: "
+                        + sourceDirName);
                 }
-            }
-            catch (Exception ex)
-            {
-                lblSourceSiteErrorLog.Text = ex.ToString();
-                return;
-            }
 
-        }
+                DirectoryInfo dirInfo = new DirectoryInfo(destDirName);
+                if (dirInfo.Exists == false)
+                    System.IO.Directory.CreateDirectory(destDirName);
 
-        private void chkTemplateOptions_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            try
-            {
-                if (chkTemplateOptions.SelectedItem == chkTemplateOptions.Items[0] && chkTemplateOptions.GetItemChecked(0) == true)
+
+                // Get the file contents of the directory to copy.
+                FileInfo[] files = dir.GetFiles();
+
+                foreach (FileInfo file in files)
                 {
-                    for (int i = 0; i < chkTemplateOptions.Items.Count; i++)
+                    // Create the path to the new copy of the file.
+                    string temppath = Path.Combine(destDirName, file.Name);
+
+                    // Copy the file.
+                    file.CopyTo(temppath, false);
+                }
+
+                // If copySubDirs is true, copy the subdirectories.
+                if (copySubDirs)
+                {
+
+                    foreach (DirectoryInfo subdir in dirs)
                     {
-                        chkTemplateOptions.SetItemChecked(i, true);
+                        // Create the subdirectory.
+                        string temppath = Path.Combine(destDirName, subdir.Name);
+
+                        // Copy the subdirectories.
+                        DirectoryCopy(subdir.FullName, temppath, copySubDirs);
                     }
                 }
-                if (chkTemplateOptions.SelectedItem == chkTemplateOptions.Items[0] && chkTemplateOptions.GetItemChecked(0) == false)
-                {
-                    for (int i = 0; i < chkTemplateOptions.Items.Count; i++)
-                    {
-                        chkTemplateOptions.SetItemChecked(i, false);
-                    }
-                }
-                for (int i = 0; i < chkTemplateOptions.Items.Count; i++)
-                {
-                    if (chkTemplateOptions.Items[i].ToString() == "Tenant" || chkTemplateOptions.Items[i].ToString() == "TermGroups" || chkTemplateOptions.Items[i].ToString() == "Publishing" || chkTemplateOptions.Items[i].ToString() == "ImageRenditions" || chkTemplateOptions.Items[i].ToString() == "WebApiPermissions")
-                    {
-                        chkTemplateOptions.SetItemCheckState(i, CheckState.Indeterminate);
-                    }
-
-                }
-            }
-            catch (Exception ex)
-            {
-                lblSourceSiteErrorLog.Text = ex.ToString();
-            }
-
-        }
-
-        private void Form1_Load(object sender, EventArgs e)
-        {
-            for (int i = 0; i < chkTemplateOptions.Items.Count; i++)
-            {
-                if (chkTemplateOptions.Items[i].ToString() == "TermGroups" || chkTemplateOptions.Items[i].ToString() == "Publishing" || chkTemplateOptions.Items[i].ToString() == "ImageRenditions" || chkTemplateOptions.Items[i].ToString() == "WebApiPermissions")
-                {
-                    chkTemplateOptions.SetItemCheckState(i, CheckState.Indeterminate);
-                }
-
-            }
-            // pnlProvision.Hide();
-            tabSiteMigration.Controls.Clear();
-            tabSiteMigration.Controls.Add(tabSiteBuilder);
-            backgroundWorker1.WorkerReportsProgress = false;
-            SourceSiteProgressBar.Visible = false;
-            TargetSiteProgressBar.Visible = false;
-            SiteBuilderProgressBar.Visible = false;
-        }
-
-        private void rbNewSite_CheckedChanged(object sender, EventArgs e)
-        {
-            tabSiteMigration.Controls.Clear();
-            tabSiteMigration.Controls.Add(tabSiteBuilder);
-            pnlProvision.Show();
-        }
-
-        private void rbSiteReplica_CheckedChanged(object sender, EventArgs e)
-        {
-            tabSiteMigration.Controls.Clear();
-            tabSiteMigration.Controls.Add(tabSourceSite);
-            tabSiteMigration.Controls.Add(tabTargetSite);
-        }
-
-        private void btnProvision_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                SiteBuilderProgressBar.Visible = true;
-                SecureString passWord = new SecureString();
-                backgroundWorker1.WorkerReportsProgress = true;
-                foreach (char c in txtPwd.Text.ToCharArray()) passWord.AppendChar(c);
-                int i = 10;
-                Thread.Sleep(100);
-                backgroundWorker1.ReportProgress(i);
-                i++;
-                CreateSite(txtSiteUrlName.Text, passWord, txtEmail.Text, txtSiteURLTitle.Text,i);
-                i = 0;
-                SiteBuilderProgressBar.Value = 100;
             }
             catch (Exception ex)
             {
                 lblSiteBuilderErrorLog.Text = ex.ToString();
             }
-           
+            
         }
-        private void CreateSite(string SiteURL, SecureString SourcePassword, string Email, string SiteTitle,int progress)
+        //Delete the folder and files from bin folder of project solution .
+        private void DeleteDirectory(string path)
         {
+            try
+            {
+                if (System.IO.Directory.Exists(path))
+                {
+                    //Delete all files from the Directory
+                    foreach (string file in System.IO.Directory.GetFiles(path))
+                    {
+                        System.IO.File.Delete(file);
+                    }
+                    //Delete all child Directories
+                    foreach (string directory in System.IO.Directory.GetDirectories(path))
+                    {
+                        DeleteDirectory(directory);
+                    }
+                    //Delete a Directory
+                    System.IO.Directory.Delete(path);
+                }
+            }
+            catch (Exception ex)
+            {
+              lblSiteBuilderErrorLog.Text=  ex.ToString();
+            }
+         
+        }
+        //This function is use for check the internal name and type of the field.
+        private bool CanFieldContentBeIncluded(Field field, bool serialize, List ListObj)
+        {
+            bool result = false;
+            try
+            {
+                if (field.InternalName.Equals("ID", StringComparison.OrdinalIgnoreCase))
+                {
+                    result = serialize;
+                }
+                else if (field.InternalName.Equals("ContentTypeId", StringComparison.OrdinalIgnoreCase) && ListObj.ContentTypesEnabled)
+                {
+                    result = true;
+                }
+                else if (field.InternalName.Equals("Attachments", StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+                else
+                {
+                    if (!field.Hidden && !field.ReadOnlyField && (field.FieldTypeKind != FieldType.Computed))
+                    {
+                        //Temporary disabled for custom fields
+                        if (field.FieldTypeKind != FieldType.Invalid)
+                        {
+                            result = true;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                lblSourceSiteErrorLog.Text = ex.ToString();
+            }
+            
+            return result;
+        }
+        //This function is use for get the provider of field.
+        private FieldValueProvider GetFieldValueProvider(Field field, Web web)
+        {
+            FieldValueProvider provider = null;
+            try
+            {
+                if (null == m_dictFieldValueProviders)
+                {
+                    m_dictFieldValueProviders = new Dictionary<string, FieldValueProvider>();
+                }
+                if (!m_dictFieldValueProviders.TryGetValue(field.InternalName, out provider))
+                {
+                    provider = new FieldValueProvider(field, web);
+                    m_dictFieldValueProviders.Add(field.InternalName, provider);
+                }
+            }
+            catch (Exception ex)
+            {
+                lblSourceSiteErrorLog.Text = ex.ToString();
+            }
+         
+            return provider;
+        }
+        //This function is use for create the new site as
+        private void CreateSite(string SiteURL, SecureString SourcePassword, string Email, string SiteTitle, int progress)
+        {
+            bool NewSite = false;
             string Tenantname = string.Empty;
             string[] splitEmail = Email.Split('@');
             string[] splitwithdot = splitEmail[1].Split('.');
@@ -1261,6 +1037,7 @@ namespace SiteMigrationProject
                 {
                     try
                     {
+                        NewSite = true;
                         tenantContext.Credentials = new SharePointOnlineCredentials(Email, SourcePassword);
                         tenantContext.RequestTimeout = Timeout.Infinite;
                         // Just to output the site details
@@ -1301,7 +1078,7 @@ namespace SiteMigrationProject
                             spo.RefreshLoad();
                             tenantContext.ExecuteQuery();
                         }
-                        if(progress == 50)
+                        if (progress == 50)
                             SiteBuilderProgressBar.Value = progress;
                     }
                     catch (Exception ex)
@@ -1358,9 +1135,9 @@ namespace SiteMigrationProject
                     string Path = Environment.CurrentDirectory + "\\" + strFolder;
                     DirectoryCopy(StrPath, strFolder, true);
                     ////
-                    if (strSiteTemplateString.Equals(provisioningTemplate.BaseSiteTemplate))
+                    if (strSiteTemplateString.Equals(provisioningTemplate.BaseSiteTemplate) || NewSite==true)
                     {
-                        Siteweb.ApplyProvisioningTemplate(provisioningTemplate,ptai);
+                        Siteweb.ApplyProvisioningTemplate(provisioningTemplate, ptai);
                         DeleteDirectory(Path);
                     }
                     else
@@ -1379,13 +1156,602 @@ namespace SiteMigrationProject
 
             }
         }
+        //This function is use for check the calculated field from list in target site and remove before we apply the template.
+        private void RemoveCalculatedColumnBeforeApplyTemplate(ClientContext clientContext)
+        {
+            try
+            {
+                Web web = clientContext.Web;
+                clientContext.Load(web);
+                clientContext.ExecuteQueryRetry();
+                ListCollection listColl = web.Lists;
+                // Retrieve the list collection properties    
+                clientContext.Load(listColl);
+                // Execute the query to the server.    
+                clientContext.ExecuteQueryRetry();
+                foreach (List list in listColl)
+                {
+                    SP.FieldCollection oFieldCollection = list.Fields;
+                    clientContext.Load(oFieldCollection, includes => includes.Include(Field => Field.Title,
+                           Field => Field.TypeAsString,
+                           Field => Field.FieldTypeKind
+                         ));
 
+                    clientContext.ExecuteQuery();
+
+                    foreach (Field oField in oFieldCollection.ToList())
+                    {
+                        if (oField.TypeAsString == "Calculated")
+                        {
+                            oField.DeleteObject();
+                            clientContext.ExecuteQueryRetry();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                lblTargetSiteErrorLog.Text = ex.ToString();
+            }
+          
+        }
+        //This function is use for migrate list item from one site to other.
+        private void MigrateListItems(ClientContext ctxSource, ClientContext ctxDest, List<string> lstSelectedSourceSiteLists)
+        {
+            try
+            {
+                ListCollection lstSourceLists = ctxSource.Web.Lists;
+                ctxSource.Load(lstSourceLists, x => x.Include(y => y.Title, y => y.BaseTemplate));
+                ctxSource.ExecuteQuery();
+
+                ListCollection lstDestLists = ctxDest.Web.Lists;
+                ctxDest.Load(lstDestLists, x => x.Include(y => y.Title, y => y.BaseTemplate));
+                ctxDest.ExecuteQuery();
+                if (lstSourceLists != null && lstDestLists != null && lstSourceLists.Count > 0 && lstDestLists.Count > 0)
+                {
+                    string[] arrSourceLists = (from p in lstSourceLists
+                                               where
+                                                   CommonHelper.AllowedBaseTemplates.Contains(p.BaseTemplate)
+                                               select p.Title).ToArray();
+                    string[] arrDestLists = (from p in lstDestLists where CommonHelper.AllowedBaseTemplates.Contains(p.BaseTemplate) select p.Title).ToArray();
+
+                    string[] arrCommonLists = arrSourceLists.Intersect(arrDestLists).ToArray();
+
+                    arrCommonLists = arrCommonLists.Where(y => lstSelectedSourceSiteLists.Contains(y)).ToArray();
+
+                    if (arrCommonLists.Length > 0)
+                    {
+                        List<LookupColumnDetails> lstLookupColumnDetails = new List<LookupColumnDetails>();
+                        // ShowUpdates("Fetching List Lookup Column Details : " + DateTime.Now);
+
+                        Dictionary<string, List<string>> dicListLookupDetails = GetListLookupDetailsDictionary(ctxSource, arrCommonLists,
+                            ref lstLookupColumnDetails);
+
+                        if (dicListLookupDetails != null && dicListLookupDetails.Count > 0)
+                        {
+                            List<string> lstSelfLookupLists = new List<string>();
+                            List<string> lstFinalListOrder = new List<string>();
+                            List<string> lstParentLists = new List<string>();
+
+                            //  ShowUpdates("Identifying List Migration Order : " + DateTime.Now);
+                            ProcessLists(ctxSource, ref dicListLookupDetails, ref lstFinalListOrder, ref lstSelfLookupLists,
+                                ref lstParentLists);
+
+                            //if (dicListLookupDetails.Count == 0)
+                            //{
+                            //string strListOrder = string.Empty;
+                            StringBuilder sb = new StringBuilder();
+
+                            sb.Append(Environment.NewLine);
+                            sb.Append("LIST MIGRATION ORDER (based on the lookup Columns)");
+                            sb.Append(Environment.NewLine);
+                            sb.Append(Environment.NewLine);
+
+                            // all lists order has been set
+                            foreach (var t in lstFinalListOrder)
+                            {
+                                sb.Append(t);
+                                sb.Append(Environment.NewLine);
+                            }
+
+                            sb.Append(Environment.NewLine);
+                            sb.Append("LIST Deletion Script Lists");
+                            sb.Append(Environment.NewLine);
+                            sb.Append(Environment.NewLine);
+
+                            // all lists order has been set
+                            foreach (var t in lstFinalListOrder.Reverse<string>())
+                            {
+                                sb.Append(t);
+                                sb.Append(",");
+                            }
+
+                            //LogHelper.Log(sb.ToString());
+
+
+                        }
+                        else
+                        {
+                            // Process further
+                        }
+                        //}
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                lblSourceSiteErrorLog.Text = ex.ToString();
+            }
+        }
+
+        //This function is use for set the sequence of the list based on master and transaction list.
+        private void ProcessLists(ClientContext ctxSource, ref Dictionary<string, List<string>> dicListLookupDetails,
+            ref List<string> lstFinalListOrder, ref List<string> lstSelfLookupLists, ref List<string> lstParentLists,
+            int intPreviousFinalListOrderCount = 0)
+        {
+            try
+            {
+                if (dicListLookupDetails.Count > 0)
+                {
+                    foreach (var dicItem in dicListLookupDetails)
+                    {
+                        try
+                        {
+                            string strListTitle = dicItem.Key;
+                            List<string> lstLookupColumnParentListTitles = dicItem.Value;
+
+                            bool blIsAllParentListHasData = true;
+                            foreach (string strLookupParentListTitle in lstLookupColumnParentListTitles)
+                            {
+                                if (!lstFinalListOrder.Contains(strLookupParentListTitle))
+                                {
+                                    if (strListTitle == strLookupParentListTitle)
+                                    {
+                                        if (!lstSelfLookupLists.Contains(strListTitle))
+                                        {
+                                            lstSelfLookupLists.Add(strListTitle);
+                                        }
+                                    }
+                                    else
+                                    {
+                                        blIsAllParentListHasData = false;
+                                    }
+                                }
+
+                                if (!lstParentLists.Contains(strLookupParentListTitle))
+                                {
+                                    lstParentLists.Add(strLookupParentListTitle);
+                                }
+                            }
+
+                            if (blIsAllParentListHasData)
+                            {
+                                lstFinalListOrder.Add(strListTitle);
+                                dicListLookupDetails.Remove(strListTitle);
+                                ProcessLists(ctxSource, ref dicListLookupDetails, ref lstFinalListOrder, ref lstSelfLookupLists,
+                                    ref lstParentLists, lstFinalListOrder.Count);
+                                break;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            //ex.HandleException(CLASS_NAME, "ProcessLists");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                lblSourceSiteErrorLog.Text = ex.ToString();
+            }
+        }
+
+        //This function is use for get the lookup details from particular list.
+        private Dictionary<string, List<string>> GetListLookupDetailsDictionary(ClientContext ctxSource, string[] arrCommonLists,
+             ref List<LookupColumnDetails> lstLookupColumnDetails, bool blLoadAllLists = false)
+        {
+            Dictionary<string, List<string>> result = new Dictionary<string, List<string>>();
+            Web sourceWeb = ctxSource.Web;
+            string strMainListName = string.Empty;
+            string strFieldName = string.Empty;
+
+            try
+            {
+                if (arrCommonLists == null && blLoadAllLists)
+                {
+                    ListCollection lstCollection = ctxSource.Web.Lists;
+                    ctxSource.Load(lstCollection, x => x.Include(y => y.Title));
+                    ctxSource.ExecuteQuery();
+
+                    if (lstCollection != null && lstCollection.Count > 0)
+                    {
+                        arrCommonLists = lstCollection.Select(x => x.Title).ToArray();
+                    }
+                }
+
+                foreach (string strListTitle in arrCommonLists)
+                {
+                    strMainListName = strListTitle;
+                    try
+                    {
+                        List lstCurrentList = sourceWeb.Lists.GetByTitle(strListTitle);
+                        ctxSource.Load(lstCurrentList);
+                        ctxSource.ExecuteQuery();
+
+                        if (lstCurrentList != null)
+                        {
+                            SP.FieldCollection fieldCollection = lstCurrentList.Fields;
+                            ctxSource.Load(fieldCollection);
+                            ctxSource.ExecuteQuery();
+
+                            if (fieldCollection != null && fieldCollection.Count > 0)
+                            {
+                                List<string> lstLookupColumnParentListTitles = new List<string>();
+
+                                foreach (Field field in fieldCollection)
+                                {
+                                    try
+                                    {
+                                        strFieldName = field.Title;
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        lblSourceSiteErrorLog.Text = ex.ToString();
+                                    }
+
+                                    try
+                                    {
+                                        if ((field.TypeAsString == "Lookup" || field.TypeAsString == "LookupMulti"))
+                                        {
+                                            ctxSource.Load(field);
+                                            ctxSource.ExecuteQuery();
+
+                                            Guid guid; string strFieldXML = field.SchemaXml;
+                                            var lookupListGUId = XElement.Parse(strFieldXML).Attributes().First(s => s.Name == "List").Value;
+
+                                            if (!string.IsNullOrEmpty(lookupListGUId) && Guid.TryParse(lookupListGUId, out guid))
+                                            {
+                                                List parentList = null;
+
+                                                parentList = sourceWeb.Lists.GetById(new Guid(lookupListGUId));
+                                                ctxSource.Load(parentList, x => x.Title);
+                                                ctxSource.ExecuteQuery();
+
+                                                if (parentList != null)
+                                                {
+
+                                                    string strParentListTitle = parentList.Title;
+
+                                                    // IMPORTANT : Uncomment below IF condition if any issue occurs
+
+                                                    //if (arrCommonLists.Contains(strParentListTitle))
+                                                    //{
+                                                    lstLookupColumnParentListTitles.Add(strParentListTitle);
+
+                                                    var ShowField = XElement.Parse(strFieldXML).Attributes().First(s => s.Name == "ShowField").Value;
+
+                                                    if (ShowField.Contains(','))
+                                                    {
+                                                        ShowField = ShowField.Split(',')[0];
+                                                    }
+
+                                                    LookupColumnDetails objLookupColumnDetails = new LookupColumnDetails();
+                                                    objLookupColumnDetails.CurrentListTitle = strListTitle;
+                                                    objLookupColumnDetails.CurrentColumnColumnTitle = field.Title;
+                                                    objLookupColumnDetails.CurrentColumnColumnInternalName = field.InternalName;
+                                                    objLookupColumnDetails.LookupParentListTitle = strParentListTitle;
+                                                    objLookupColumnDetails.LookupColumnShowField = ShowField;
+                                                    objLookupColumnDetails.LookupColumnShowFieldType = GetFieldType(ctxSource,
+                                                                                                    ShowField, strParentListTitle);
+
+                                                    lstLookupColumnDetails.Add(objLookupColumnDetails);
+                                                    //}
+                                                }
+                                            }
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        lblSourceSiteErrorLog.Text = ex.ToString() + "GetListLookupDetailsDictionar  " + "List Title : " + strMainListName + "; Field Title : " + strFieldName;
+                                    }
+                                    strFieldName = "";
+                                }
+
+                                result.Add(strListTitle, lstLookupColumnParentListTitles.Distinct().ToList<string>());
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        lblSourceSiteErrorLog.Text = ex.ToString() + "GetListLookupDetailsDictionar  " + "List Title : " + strMainListName + "; Field Title : " + strFieldName;
+
+                    }
+                    strMainListName = "";
+                }
+            }
+            catch (Exception ex)
+            {
+                lblSourceSiteErrorLog.Text=ex.ToString()+ "GetListLookupDetailsDictionary" + "List Title : " + strMainListName + "; Field Title : " + strFieldName;
+            }
+            return result;
+        }
+        //This function is use for get the type of the field.
+        private string GetFieldType(ClientContext clientContext, string strFieldTitle, string strListTitle)
+        {
+            string strFieldType = "";
+            try
+            {
+                List lst = clientContext.Web.Lists.GetByTitle(strListTitle);
+                clientContext.Load(lst);
+                clientContext.ExecuteQuery();
+
+                if (lst != null)
+                {
+                    SP.FieldCollection fieldCollection = lst.Fields;
+                    clientContext.Load(fieldCollection, y => y.Include(x => x.Title, x => x.TypeAsString));
+                    clientContext.ExecuteQuery();
+
+                    Microsoft.SharePoint.Client.Field field = fieldCollection.Where(x => x.Title == strFieldTitle).FirstOrDefault();
+
+                    if (field != null)
+                    {
+                        strFieldType = field.TypeAsString;
+                    }
+
+                }
+            }
+            catch (Exception ex)
+            {
+                lblSourceSiteErrorLog.Text = ex.ToString();
+
+            }
+            return strFieldType;
+        }
+        #endregion //Methods
+
+        #region Implementation
+        //This is the SiteMigrate button click event in which call the Applytemplate fucntion.
+        private void btnSiteMigrate_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                string StrTargetWebUrl = txtDestinationSiteName.Text;
+                string StrUserName = txtDesUsername.Text;
+                string StrPassword = txtDesPassword.Text;
+                string StrFileName = txtDesXMLFileName.Text;
+                var pathArray = StrFileName.Split('\\');
+                var newPathname = "";
+                for (int j = 0; j < pathArray.Length - 1; j++)
+                {
+                    newPathname += pathArray[j];
+                    newPathname += "\\";
+                }
+                string StrFileLocation = newPathname;
+                SecureString SecurePassword = new SecureString();
+                foreach (char c in StrPassword.ToCharArray()) SecurePassword.AppendChar(c);
+                TargetSiteProgressBar.Visible = true;
+                backgroundWorker1.WorkerReportsProgress = true;
+                int i = 10;
+                Thread.Sleep(100);
+                backgroundWorker1.ReportProgress(i);
+                i++;
+
+
+                // APPLY the template to new site from
+                ApplyProvisioningTemplate(StrTargetWebUrl, StrUserName, SecurePassword, StrFileLocation, StrFileName);
+
+                i = 0;
+                TargetSiteProgressBar.Value = 100;
+            }
+            catch (Exception ex)
+            {
+                lblTargetSiteErrorLog.Text = ex.ToString();
+            }
+
+
+        }
+        //This is the GenerateXmlfile button clcik event in which call the Apply template function
+        private void btnXMLFile_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                // Collect information
+
+                string StrSourceWebUrl = txtSourceSiteName.Text;
+                string StrUserName = txtUsername.Text;
+                string StrPassword = txtPassword.Text;
+                string StrLocation = txtFileLocation.Text;
+                SecureString SecurePassword = new SecureString();
+                foreach (char c in StrPassword.ToCharArray()) SecurePassword.AppendChar(c);
+                int i = 10;
+                Thread.Sleep(100);
+                backgroundWorker1.WorkerReportsProgress = true;
+                backgroundWorker1.ReportProgress(i);
+                i++;
+                // GET the template from existing site and serialize
+                // Serializing the template for later reuse is optional
+                // GetTenantNameFromUrl(StrSourceWebUrl);
+                //  GetTenantProvisioningTemplate(StrSourceWebUrl, StrUserName, SecurePassword, StrLocation);
+                GetProvisioningTemplate(StrSourceWebUrl, StrUserName, SecurePassword, StrLocation);
+                i = 0;
+                SourceSiteProgressBar.Value = 100;
+            }
+            catch (Exception ex)
+            {
+                lblSourceSiteErrorLog.Text = ex.ToString();
+            }
+
+
+
+        }
+
+        public static string GetLookupFieldOptions(ClientContext clientContext, string ListID, string ColumnName, int LookupId)
+        {
+            string LookupValue = "";
+            try
+            {
+                //List<LookupValues> ListLookupValues = new List<LookupValues> { };
+                Guid ListGUID = new Guid(ListID);
+                SP.List oList = clientContext.Web.Lists.GetById(ListGUID);
+
+                CamlQuery camlQuery = new CamlQuery();
+                // camlQuery.ViewXml = "<View><Query><Where><Eq><FieldRef Name ='Country'/><Value Type ='Lookup'>5</Value></Eq></Where></Query></View>";
+
+                ListItemCollection collListItem = oList.GetItems(camlQuery);
+
+                clientContext.Load(collListItem);
+
+                clientContext.ExecuteQuery();
+
+                foreach (ListItem oListItem in collListItem)
+                {
+                    LookupValue = Convert.ToString(oListItem["Title"]);
+                }
+                return LookupValue;
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+        //This is the browse button click event in which set the xml file location in textbox.
+        private void btnBrowse_Click_1(object sender, EventArgs e)
+        {
+            try
+            {
+                DialogResult result = openFileDialog1.ShowDialog();
+                if (result == DialogResult.OK) // Test result.
+                {
+                    txtDesXMLFileName.Text = openFileDialog1.FileName;
+                }
+            }
+            catch (Exception ex)
+            {
+                lblTargetSiteErrorLog.Text = ex.ToString();
+            }
+
+        }
+        //This is the browse button click event in which set the xml file location in textbox.
+        private void btnSourceBrowse_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                DialogResult result = folderBrowserDialog1.ShowDialog();
+                if (result == DialogResult.OK) // Test result.
+                {
+                    txtFileLocation.Text = folderBrowserDialog1.SelectedPath;
+                }
+            }
+            catch (Exception ex)
+            {
+                lblSourceSiteErrorLog.Text = ex.ToString();
+                return;
+            }
+
+        }
+        //This is the selected index change event of checkbox list item in which set the code to checked All options when select "All" from the option.
+        private void chkTemplateOptions_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            try
+            {
+                if (chkTemplateOptions.SelectedItem == chkTemplateOptions.Items[0] && chkTemplateOptions.GetItemChecked(0) == true)
+                {
+                    for (int i = 0; i < chkTemplateOptions.Items.Count; i++)
+                    {
+                        chkTemplateOptions.SetItemChecked(i, true);
+                    }
+                }
+                if (chkTemplateOptions.SelectedItem == chkTemplateOptions.Items[0] && chkTemplateOptions.GetItemChecked(0) == false)
+                {
+                    for (int i = 0; i < chkTemplateOptions.Items.Count; i++)
+                    {
+                        chkTemplateOptions.SetItemChecked(i, false);
+                    }
+                }
+                for (int i = 0; i < chkTemplateOptions.Items.Count; i++)
+                {
+                    if (chkTemplateOptions.Items[i].ToString() == "Tenant" || chkTemplateOptions.Items[i].ToString() == "TermGroups" || chkTemplateOptions.Items[i].ToString() == "Publishing" || chkTemplateOptions.Items[i].ToString() == "ImageRenditions" || chkTemplateOptions.Items[i].ToString() == "WebApiPermissions")
+                    {
+                        chkTemplateOptions.SetItemCheckState(i, CheckState.Indeterminate);
+                    }
+
+                }
+            }
+            catch (Exception ex)
+            {
+                lblSourceSiteErrorLog.Text = ex.ToString();
+            }
+
+        }
+
+        //In form load function add the code for show and hide some control.
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            for (int i = 0; i < chkTemplateOptions.Items.Count; i++)
+            {
+                if (chkTemplateOptions.Items[i].ToString() == "TermGroups" || chkTemplateOptions.Items[i].ToString() == "Publishing" || chkTemplateOptions.Items[i].ToString() == "ImageRenditions" || chkTemplateOptions.Items[i].ToString() == "WebApiPermissions")
+                {
+                    chkTemplateOptions.SetItemCheckState(i, CheckState.Indeterminate);
+                }
+
+            }
+            // pnlProvision.Hide();
+            tabSiteMigration.Controls.Clear();
+            tabSiteMigration.Controls.Add(tabSiteBuilder);
+            backgroundWorker1.WorkerReportsProgress = false;
+            SourceSiteProgressBar.Visible = false;
+            TargetSiteProgressBar.Visible = false;
+            SiteBuilderProgressBar.Visible = false;
+        }
+
+        //This is new site radiobutton checked event in which set hide/show of some control.
+        private void rbNewSite_CheckedChanged(object sender, EventArgs e)
+        {
+            tabSiteMigration.Controls.Clear();
+            tabSiteMigration.Controls.Add(tabSiteBuilder);
+            lblSiteTitle.Show();
+            txtSiteURLTitle.Show();
+            pnlProvision.Show();
+        }
+        //This is StieReplica radiobutton checked event in which set hide/show of some control.
+        private void rbSiteReplica_CheckedChanged(object sender, EventArgs e)
+        {
+            tabSiteMigration.Controls.Clear();
+            tabSiteMigration.Controls.Add(tabSourceSite);
+            tabSiteMigration.Controls.Add(tabTargetSite);
+        }
+        //This is provision button click event in which call the create site function.
+        private void btnProvision_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                SiteBuilderProgressBar.Visible = true;
+                SecureString passWord = new SecureString();
+                backgroundWorker1.WorkerReportsProgress = true;
+                foreach (char c in txtPwd.Text.ToCharArray()) passWord.AppendChar(c);
+                int i = 10;
+                Thread.Sleep(100);
+                backgroundWorker1.ReportProgress(i);
+                i++;
+                CreateSite(txtSiteUrlName.Text, passWord, txtEmail.Text, txtSiteURLTitle.Text, i);
+                i = 0;
+                SiteBuilderProgressBar.Value = 100;
+            }
+            catch (Exception ex)
+            {
+                lblSiteBuilderErrorLog.Text = ex.ToString();
+            }
+
+        }
+
+        //This is the back button click event in which set the code for back on the main page.
         private void btnBack_Click(object sender, EventArgs e)
         {
             tabSiteMigration.Controls.Clear();
             tabSiteMigration.Controls.Add(tabSiteBuilder);
         }
 
+        //This is the browse button click event in which set the xml file location in textbox.
         private void btnBrowseTemplate_Click(object sender, EventArgs e)
         {
             try
@@ -1401,7 +1767,7 @@ namespace SiteMigrationProject
                 lblSiteBuilderErrorLog.Text = ex.ToString();
             }
         }
-
+        //This is Asset path button click event in which set the Asset path location in textbox.
         private void btnAssetPath_Click(object sender, EventArgs e)
         {
             try
@@ -1418,29 +1784,17 @@ namespace SiteMigrationProject
             }
         }
 
-        private void btnTargetFileLocation_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                DialogResult result = folderBrowserDialog1.ShowDialog();
-                if (result == DialogResult.OK) // Test result.
-                {
-                    txtTargetFileLocation.Text = folderBrowserDialog1.SelectedPath;
-                }
-            }
-            catch (Exception ex)
-            {
-                lblTargetSiteErrorLog.Text = ex.ToString();
-            }
-        }
-
+        //This is Existing site radiobutton checked event in which set hide/show of some control.
         private void rbExistingSite_CheckedChanged(object sender, EventArgs e)
         {
             tabSiteMigration.Controls.Clear();
             tabSiteMigration.Controls.Add(tabSiteBuilder);
+            lblSiteTitle.Hide();
+            txtSiteURLTitle.Hide();
             pnlProvision.Show();
         }
 
+        //This is loadlist button click event in which call the bindlistname function.
         private void btnLoadList_Click(object sender, EventArgs e)
         {
             try
@@ -1462,7 +1816,7 @@ namespace SiteMigrationProject
             }
         }
 
-
+        //This is progress bar change event.
         private void backgroundWorker1_ProgressChanged(object sender, System.ComponentModel.ProgressChangedEventArgs e)
         {
             // Change the value of the ProgressBar  
@@ -1471,6 +1825,7 @@ namespace SiteMigrationProject
             this.Text = "Progress: " + e.ProgressPercentage.ToString() + "%";
         }
 
+        //This the listname checkbox listitem selected index change event. in which set the code for selection of options.
         private void ChkListName_SelectedIndexChanged(object sender, EventArgs e)
         {
             try
@@ -1490,26 +1845,13 @@ namespace SiteMigrationProject
                     }
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-
-                throw;
+                lblSourceSiteErrorLog.Text = ex.ToString();
             }
         }
-        private void AddIDMappingEntry(ListItem item, DataRow dataRow)
-        {
-            int oldId;
-            string strId;
-            if (dataRow.Values.TryGetValue("Country", out strId) && int.TryParse(strId, out oldId) && (0 < oldId))
-            {
-                if (null == m_mappingIDs)
-                {
-                    m_mappingIDs = new Dictionary<int, int>();
-                }
-                m_mappingIDs[oldId] = item.Id;
 
-            }
-        }
+        //This is the Add group button click event in which set the code for add site group with permission from source to target site.
         private void btnAddGroups_Click(object sender, EventArgs e)
         {
             string StrSourceWebUrl = txtSourceSiteName.Text;
@@ -1547,7 +1889,7 @@ namespace SiteMigrationProject
                     clientContext.ExecuteQuery();
                     TargetClientContext.ExecuteQuery();
                     bool IsPermissionAlreadyExist = false;
-                    // bool IsGroupAvailable = false;
+                    bool IsGroupAvailable = false;
                     try
                     {
                         foreach (var RoleDefinition in clientContext.Web.RoleDefinitions)
@@ -1587,22 +1929,80 @@ namespace SiteMigrationProject
                     }
                     foreach (SP.RoleAssignment grp in roleAssignments)
                     {
-                        string strGroup = "";
-                        strGroup += grp.Member.Title + " : ";
-                        GroupCreationInformation groupCreationInfo = new GroupCreationInformation();
-                        groupCreationInfo.Title = grp.Member.Title;
-                        // groupCreationInfo.Description = ;
-                        Group oGroup = Targetweb.SiteGroups.Add(groupCreationInfo);
-                        TargetClientContext.Load(oGroup);
-                        RoleDefinitionBindingCollection collRoleDefinitionBinding = new RoleDefinitionBindingCollection(TargetClientContext);
-                        foreach (SP.RoleDefinition oRoleDefinition in grp.RoleDefinitionBindings)
+                        GroupCollection TargetSiteGroups = Targetweb.SiteGroups;
+                        foreach (Group targetGroup in TargetSiteGroups)
                         {
-                            // strGroup += rd.Name + " ";
-                            collRoleDefinitionBinding.Add(oRoleDefinition);
-                            TargetClientContext.Load(oRoleDefinition);
+                            if (grp.Member.Title == targetGroup.Title)
+                            {
+                                IsGroupAvailable = true;
+                                break;
+                            }
+                            else
+                            {
+                                IsGroupAvailable = false;
+                            }
+
                         }
-                        Targetweb.RoleAssignments.Add(oGroup, collRoleDefinitionBinding);
-                        TargetClientContext.ExecuteQuery();
+                        if (IsGroupAvailable == false)
+                        {
+                            GroupCreationInformation objCreateGroup = new GroupCreationInformation();
+                            if (!grp.Member.Title.Contains("Members") && !grp.Member.Title.Contains("Owners") && !grp.Member.Title.Contains("Visitors"))
+                            {
+                                objCreateGroup.Title = grp.Member.Title;
+                                objCreateGroup.Description = grp.Member.Title;
+                                Group grpAdd = TargetClientContext.Site.RootWeb.SiteGroups.Add(objCreateGroup);
+                                SP.RoleDefinition rd = null;
+                                RoleDefinitionBindingCollection rdb = new RoleDefinitionBindingCollection(TargetClientContext);
+
+                                foreach (SP.RoleDefinition oRoleDefinition in grp.RoleDefinitionBindings)
+                                {
+                                    if (!oRoleDefinition.Name.Equals(string.Empty))
+                                    {
+                                        bool permissionMatch = false;
+                                        if (oRoleDefinition.Name.Equals("Read", StringComparison.InvariantCultureIgnoreCase))
+                                        {
+                                            rd = TargetClientContext.Web.RoleDefinitions.GetByType(RoleType.Reader);
+                                            permissionMatch = true;
+                                        }
+                                        if (oRoleDefinition.Name.Equals("Full Control", StringComparison.InvariantCultureIgnoreCase))
+                                        {
+                                            rd = TargetClientContext.Web.RoleDefinitions.GetByType(RoleType.Administrator);
+                                            permissionMatch = true;
+                                        }
+                                        if (oRoleDefinition.Name.Equals("Design", StringComparison.InvariantCultureIgnoreCase))
+                                        {
+                                            rd = TargetClientContext.Web.RoleDefinitions.GetByType(RoleType.WebDesigner);
+                                            permissionMatch = true;
+                                        }
+                                        if (oRoleDefinition.Name.Equals("Edit", StringComparison.InvariantCultureIgnoreCase))
+                                        {
+                                            rd = TargetClientContext.Web.RoleDefinitions.GetByType(RoleType.Editor);
+                                            permissionMatch = true;
+                                        }
+                                        if (oRoleDefinition.Name.Equals("Contribute", StringComparison.InvariantCultureIgnoreCase))
+                                        {
+                                            rd = TargetClientContext.Web.RoleDefinitions.GetByType(RoleType.Contributor);
+                                            permissionMatch = true;
+                                        }
+                                        if (!permissionMatch)
+                                            rd = TargetClientContext.Web.RoleDefinitions.GetByName(oRoleDefinition.Name);
+                                        if (!oRoleDefinition.Name.Contains("Limited Access"))
+                                        {
+                                            rdb.Add(rd);
+                                        }
+                                        // else
+                                        //{
+                                        //    rd = TargetClientContext.Web.RoleDefinitions.GetByType(RoleType.Reader);
+                                        //    rdb.Add(rd);
+                                        //}
+
+                                    }
+
+                                }
+                                TargetClientContext.Web.RoleAssignments.Add(grpAdd, rdb);
+                                TargetClientContext.ExecuteQuery();
+                            }
+                        }
                     }
 
                     //try
@@ -1653,124 +2053,53 @@ namespace SiteMigrationProject
                 }
             }
         }
-        private Dictionary<string, string> GetSitePermissionDetails(ClientContext clientContext)
+        //This is the XMlFileWithListData button click event in which call the getprovisioning template function.
+        private void btnXMlFileWithListData_Click(object sender, EventArgs e)
         {
-            IEnumerable roles = clientContext.LoadQuery(clientContext.Web.RoleAssignments.Include(roleAsg => roleAsg.Member,
-            roleAsg => roleAsg.RoleDefinitionBindings.Include(roleDef => roleDef.Name)));
-            clientContext.ExecuteQuery();
-
-            Dictionary<string, string> permisionDetails = new Dictionary<string, string>();
-            foreach (Microsoft.SharePoint.Client.RoleAssignment ra in roles)
+            try
             {
-                var rdc = ra.RoleDefinitionBindings;
-                string permission = string.Empty;
-                foreach (var rdbc in rdc)
-                {
-                    permission += rdbc.Name.ToString() + ", ";
-                }
-
-
-                if (!permisionDetails.ContainsKey(ra.Member.Title))
-                    permisionDetails.Add(ra.Member.Title, permission);
+                // Collect information
+                string StrSourceWebUrl = txtSourceSiteName.Text;
+                string StrUserName = txtUsername.Text;
+                string StrPassword = txtPassword.Text;
+                string StrLocation = txtFileLocation.Text;
+                SecureString SecurePassword = new SecureString();
+                foreach (char c in StrPassword.ToCharArray()) SecurePassword.AppendChar(c);
+                int i = 10;
+                Thread.Sleep(100);
+                backgroundWorker1.ReportProgress(i);
+                i++;
+                XMLWithData = true;
+                GetProvisioningTemplate(StrSourceWebUrl, StrUserName, SecurePassword, StrLocation);
+                i = 0;
+                SourceSiteProgressBar.Value = 100;
             }
-            return permisionDetails;
-        }
-
-        private void RemoveCalculatedColumnBeforeApplyTemplate(ClientContext clientContext)
-        {
-            Web web = clientContext.Web;
-            clientContext.Load(web);
-            clientContext.ExecuteQueryRetry();
-            ListCollection listColl = web.Lists;
-            // Retrieve the list collection properties    
-            clientContext.Load(listColl);
-            // Execute the query to the server.    
-            clientContext.ExecuteQueryRetry();
-            foreach (List list in listColl)
+            catch (Exception ex)
             {
-                SP.FieldCollection oFieldCollection = list.Fields;
-                clientContext.Load(oFieldCollection, includes => includes.Include(Field => Field.Title,
-                       Field => Field.TypeAsString,
-                       Field => Field.FieldTypeKind
-                     ));
-
-                clientContext.ExecuteQuery();
-
-                foreach (Field oField in oFieldCollection.ToList())
-                {
-                    if (oField.TypeAsString == "Calculated")
-                    {
-                        oField.DeleteObject();
-                        clientContext.ExecuteQueryRetry();
-                    }
-                }
+                lblSourceSiteErrorLog.Text = ex.ToString();
             }
         }
 
-        private static string GetTenantNameFromUrl(string tenantUrl)
+        //This is the Data migration button click event in which call the DataMigrate function.
+        private void btnDataMigration_Click(object sender, EventArgs e)
         {
-            if (tenantUrl.ToLower().Contains("-admin.sharepoint."))
+            try
             {
-                return GetSubstringFromMiddle(tenantUrl, "https://", "-admin.sharepoint.");
+                TargetSiteProgressBar.Visible = true;
+                backgroundWorker1.WorkerReportsProgress = true;
+                int i = 10;
+                Thread.Sleep(100);
+                backgroundWorker1.ReportProgress(i);
+                i++;
+                DataMigrate();
+                TargetSiteProgressBar.Value = 100;
             }
-            else
+            catch (Exception ex)
             {
-                return GetSubstringFromMiddle(tenantUrl, "https://", ".sharepoint.");
+                lblTargetSiteErrorLog.Text = ex.ToString();
             }
         }
+        #endregion //Implementation   
 
-        private static string GetSubstringFromMiddle(string originalString, string prefix, string suffix)
-        {
-            var index = originalString.IndexOf(suffix, StringComparison.OrdinalIgnoreCase);
-            return index != -1 ? originalString.Substring(prefix.Length, index - prefix.Length) : null;
-        }
-
-        #region Nested Types
-
-        internal class LookupDataRef
-        {
-            #region Constructors
-
-            public LookupDataRef(FieldLookup field)
-            {
-                this.Field = field;
-                this.ItemLookupValues = new Dictionary<ListItem, object>();
-            }
-
-            #endregion Constructors
-
-            #region Properties
-
-            public FieldLookup Field
-            {
-                get; private set;
-            }
-
-            public Dictionary<ListItem, object> ItemLookupValues
-            {
-                get; private set;
-            }
-
-            #endregion Properties
-        }
-
-        private class ListItemInfo
-        {
-            #region Properties
-
-            public ListItem Item
-            {
-                get; set;
-            }
-
-            public DataRow Row
-            {
-                get; set;
-            }
-
-            #endregion Properties
-        }
-
-        #endregion Nested Types
     }
 }
